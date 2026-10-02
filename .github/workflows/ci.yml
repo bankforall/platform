@@ -56,6 +56,7 @@ jobs:
       - run: docker compose -f docker-compose.dev.yml up -d --wait postgres redis s3 anvil
       - run: ./scripts/dev-deploy.sh
       - run: pnpm --filter @bankforall/shared build
+      - run: pnpm --filter @bankforall/api exec prisma generate
       - name: Migrate
         working-directory: apps/api
         run: set -a && . ./.env && set +a && npx prisma migrate deploy
