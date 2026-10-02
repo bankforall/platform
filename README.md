@@ -23,6 +23,7 @@ pnpm install
 docker compose -f docker-compose.dev.yml up -d      # postgres, redis, s3 (SeaweedFS), anvil
 ./scripts/dev-deploy.sh                             # deploy contracts → เขียน apps/api/.env
 pnpm --filter @bankforall/shared build
+pnpm --filter @bankforall/api exec prisma generate  # Prisma client → apps/api/src/generated
 cd apps/api && set -a && . ./.env && set +a && npx prisma migrate deploy
 npx tsx src/server.ts                               # API :4000
 npx tsx src/worker.ts                               # worker (อีก terminal)
