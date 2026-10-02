@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import {
   CircleType,
   LEGAL_CAPS,
@@ -147,7 +147,7 @@ export default function CreateCircle() {
               onChange={(e) => setDescription(e.target.value)}
               maxLength={500}
               rows={2}
-              className="w-full rounded-xl bg-surface-input px-4 py-3 text-ink focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/30"
+              className="w-full rounded-xl bg-surface-input px-4 py-3 text-ink focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-primary/30"
             />
           </div>
         </Card>
@@ -159,7 +159,7 @@ export default function CreateCircle() {
               key={t.type}
               className={cx(
                 "flex cursor-pointer gap-3 rounded-2xl border-2 bg-white p-4 focus-within:ring-2 focus-within:ring-primary",
-                type === t.type ? "border-primary" : "border-transparent shadow-sm",
+                type === t.type ? "border-primary" : "border-transparent shadow-xs",
               )}
             >
               <input type="radio" name="type" className="mt-1 accent-primary" checked={type === t.type} onChange={() => setType(t.type)} />
@@ -233,7 +233,7 @@ export default function CreateCircle() {
                 onClick={() => choosePeriod(p.id)}
                 className={cx(
                   "rounded-xl py-3 text-sm font-medium",
-                  periodId === p.id ? "bg-primary text-white" : "bg-white text-ink shadow-sm",
+                  periodId === p.id ? "bg-primary text-white" : "bg-white text-ink shadow-xs",
                 )}
               >
                 {p.label}
@@ -303,7 +303,7 @@ export default function CreateCircle() {
                 className="mb-2"
               />
             )}
-            <div className="overflow-x-auto rounded-2xl bg-white shadow-sm">
+            <div className="overflow-x-auto rounded-2xl bg-white shadow-xs">
               <table className="w-full text-sm">
                 <thead className="bg-primary-soft text-left text-xs text-ink">
                   <tr>

@@ -1,5 +1,5 @@
 import { lazy, Suspense, type ReactNode } from "react";
-import { Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation } from "react-router";
 import { useLocalAddress, useMe } from "@/hooks/session";
 import { errorMessage } from "@/api/client";
 import { ErrorState, Loading } from "@/components/ui";

@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 # Builds the PWA and serves it with Caddy (TLS, security headers, /api reverse proxy).
 #   docker build -f apps/web/Dockerfile -t bankforall-web .
-FROM node:20-bookworm-slim AS build
+FROM node:24-trixie-slim AS build
 RUN corepack enable
 WORKDIR /repo
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./

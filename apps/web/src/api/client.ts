@@ -16,7 +16,7 @@ const BASE = "/api";
 
 type Method = "GET" | "POST" | "PUT" | "DELETE";
 
-interface RequestOptions<S extends z.ZodTypeAny | undefined> {
+interface RequestOptions<S extends z.ZodType | undefined> {
   method?: Method;
   body?: unknown;
   form?: FormData;
@@ -28,10 +28,10 @@ interface RequestOptions<S extends z.ZodTypeAny | undefined> {
  * Typed fetch: sends the session cookie, the CSRF header on mutations, and validates
  * the response with the shared zod schema so contract drift fails loudly.
  */
-export async function request<S extends z.ZodTypeAny | undefined = undefined>(
+export async function request<S extends z.ZodType | undefined = undefined>(
   path: string,
   opts: RequestOptions<S> = {},
-): Promise<S extends z.ZodTypeAny ? z.infer<S> : unknown> {
+): Promise<S extends z.ZodType ? z.output<S> : unknown> {
   const method = opts.method ?? (opts.body !== undefined || opts.form ? "POST" : "GET");
   const headers: Record<string, string> = { accept: "application/json" };
   if (method !== "GET") headers["x-requested-with"] = "bankforall";
@@ -67,12 +67,12 @@ export async function request<S extends z.ZodTypeAny | undefined = undefined>(
   }
 
   if (opts.schema) {
-    const parsed = (opts.schema as z.ZodTypeAny).safeParse(json);
+    const parsed = opts.schema.safeParse(json);
     if (!parsed.success) {
       console.error("API contract mismatch", path, parsed.error.issues);
       throw new ApiError(res.status, "BAD_RESPONSE", "ข้อมูลจากเซิร์ฟเวอร์ไม่ถูกต้อง");
     }
-    return parsed.data;
+    return parsed.data as never;
   }
   return json as never;
 }

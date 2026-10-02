@@ -1,4 +1,4 @@
-import { useParams, useSearchParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import type { CircleDetail as Detail } from "@bankforall/shared";
 import { api, qk } from "@/api/endpoints";

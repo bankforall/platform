@@ -15,7 +15,7 @@ flowchart LR
     end
     API --> PG[(PostgreSQL)]
     API --> R[(Redis: rate limit, tx locks, lease)]
-    API --> S3[(MinIO: KYC/สลิป เข้ารหัส AES-GCM)]
+    API --> S3[(S3 — SeaweedFS: KYC/สลิป เข้ารหัส AES-GCM)]
     API -- "relayer จ่าย gas" --> F["ERC2771Forwarder"]
     F --> CF["CircleFactory"] & CI["Circle (EIP-1167 clone ต่อวง)"]
     W -- keeper/attester --> CI
@@ -36,7 +36,7 @@ flowchart LR
 | --- | --- | --- |
 | `packages/contracts` | `CircleFactory`, `Circle`, `CircleTypes`, deploy script, ABI export | Foundry 31 ข้อ (รวม replay test vectors, meta-tx, key rotation) |
 | `packages/shared` | กติกา (`circle-math`), zod API contract (`api.ts`), EIP-712 types, PromptPay EMVCo, ABIs | vitest 23 ข้อ (PromptPay เทียบกับ `promptpay-qr`) |
-| `apps/api` | Fastify API + worker + Prisma schema/migrations + CLI | unit 6 ข้อ + **E2E 9 ขั้น** กับ Postgres/Redis/MinIO/anvil จริง |
+| `apps/api` | Fastify API + worker + Prisma schema/migrations + CLI | unit 6 ข้อ + **E2E 9 ขั้น** กับ Postgres/Redis/S3/anvil จริง |
 | `apps/web` | PWA (React, Vite, Tailwind, TanStack Query, viem) | vitest (wallet crypto, signing, screens) |
 | `e2e` | Playwright: ผู้ใช้หลายคนในเบราว์เซอร์จริง | |
 | `deploy` | `docker-compose.prod.yml`, `Caddyfile`, `.env.production.example`, `backup.sh` | smoke test ทั้ง stack แบบ production แล้ว |
@@ -97,7 +97,18 @@ API ของ contract อ่านได้จาก `packages/shared/src/abi.t
 | Web | CSP เข้มงวด, HSTS, frame-ancestors none; กุญแจผู้ใช้เข้ารหัสด้วย non-extractable WebCrypto key; PIN ผิด 5 ครั้งล็อก 5 นาที |
 | Config | ระบบไม่เริ่มใน production ถ้า dev login เปิด, ไม่มี LINE, SMS แบบ console, ไม่ใช่ https หรือใช้กุญแจซ้ำกัน |
 
-## 7. ข้อจำกัดที่รู้แล้ว
+## 7. เวอร์ชันหลัก (ต.ค. 2026)
+
+| ส่วน | เวอร์ชัน |
+| --- | --- |
+| Runtime | Node.js 24 LTS, pnpm 12 (บังคับ `minimumReleaseAge` 24 ชม. ป้องกัน supply-chain attack) |
+| Contracts | Solidity 0.8.37, OpenZeppelin 5.7.0, Foundry |
+| Shared/API | TypeScript 7, Zod 4, Fastify 5, Prisma 7 (`prisma-client` generator + `@prisma/adapter-pg`), viem 2, pino 10 |
+| Web | React 19, React Router 8, Tailwind CSS 4, Vite 8, vite-plugin-pwa 1, TanStack Query 5 |
+| Tests | Vitest 5, Playwright 1.63 |
+| Infra | PostgreSQL 18, Redis 8, SeaweedFS 4.48, Caddy 2.11 |
+
+## 8. ข้อจำกัดที่รู้แล้ว
 
 - การตรวจสลิปอัตโนมัติยังไม่มีผู้ให้บริการ (`SLIP_VERIFIER=none`) → ผู้รับยืนยันการรับเงินเองบน chain (ซึ่งเป็นหลักฐานที่แข็งที่สุดอยู่แล้ว)
 - ผู้ผิดนัดยังคงเป็นผู้รับคนสุดท้าย — ต้องตัดสินใจกติกาการชดเชย (ดู [rules-spec.md](./rules-spec.md#7-คำถามที่ยังเปิดอยู่))

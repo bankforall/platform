@@ -1,4 +1,4 @@
-import type { z, ZodTypeAny } from "zod";
+import type { z, ZodType } from "zod";
 
 export class AppError extends Error {
   constructor(
@@ -16,7 +16,7 @@ export const forbidden = (message = "ไม่มีสิทธิ์ทำร�
 export const notFound = (message = "ไม่พบข้อมูล") => new AppError(404, "NOT_FOUND", message);
 export const conflict = (message: string, code = "CONFLICT") => new AppError(409, code, message);
 
-export function parse<S extends ZodTypeAny>(schema: S, data: unknown): z.output<S> {
+export function parse<S extends ZodType>(schema: S, data: unknown): z.output<S> {
   const result = schema.safeParse(data);
   if (!result.success) {
     const first = result.error.issues[0];

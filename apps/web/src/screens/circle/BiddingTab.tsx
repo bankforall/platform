@@ -152,7 +152,7 @@ export default function BiddingTab({ circle, myAddress }: TabProps) {
       {round.bidding && (
         <>
           <SectionTitle>ผู้มีสิทธิ์ประมูล</SectionTitle>
-          <ul className="divide-y divide-gray-100 rounded-2xl bg-white shadow-sm">
+          <ul className="divide-y divide-gray-100 rounded-2xl bg-white shadow-xs">
             {unwon.map((m) => {
               const did = round.committed.some((a) => sameAddress(a, m.address));
               const revealed = round.revealed.find((r) => sameAddress(r.member, m.address));

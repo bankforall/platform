@@ -39,7 +39,7 @@ export default function ConsentStep({ onDone }: { onDone: () => void }) {
 
   return (
     <div className="space-y-5">
-      <section className="rounded-2xl bg-white p-4 shadow-sm">
+      <section className="rounded-2xl bg-white p-4 shadow-xs">
         <h2 className="font-semibold text-ink">ข้อกำหนดการใช้งาน</h2>
         <ol className="mt-2 list-decimal space-y-2 pl-5 text-sm text-ink-muted">
           {terms.map((t) => (
@@ -47,7 +47,7 @@ export default function ConsentStep({ onDone }: { onDone: () => void }) {
           ))}
         </ol>
       </section>
-      <section className="rounded-2xl bg-white p-4 shadow-sm">
+      <section className="rounded-2xl bg-white p-4 shadow-xs">
         <h2 className="font-semibold text-ink">นโยบายความเป็นส่วนตัว (PDPA)</h2>
         <ul className="mt-2 list-disc space-y-2 pl-5 text-sm text-ink-muted">
           {privacy.map((t) => (

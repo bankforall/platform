@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
+import { Navigate, useNavigate, useSearchParams } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { api, qk } from "@/api/endpoints";
 import { errorMessage } from "@/api/client";
@@ -21,7 +21,7 @@ export default function Login() {
   if (me.data) return <Navigate to={next} replace />;
   if (config.isLoading) return <Loading />;
 
-  const devLogin = async (e: React.FormEvent) => {
+  const devLogin = async (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
     setBusy(true);
     setError(null);

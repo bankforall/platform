@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, qk } from "@/api/endpoints";
 import { errorMessage } from "@/api/client";
@@ -38,7 +38,7 @@ export default function Notifications() {
           <ul className="space-y-2">
             {q.data.map((n) => {
               const body = (
-                <div className={cx("rounded-2xl bg-white p-4 shadow-sm", !n.readAt && "border-l-4 border-primary")}>
+                <div className={cx("rounded-2xl bg-white p-4 shadow-xs", !n.readAt && "border-l-4 border-primary")}>
                   <div className="flex items-start justify-between gap-2">
                     <p className="font-medium text-ink">{n.title}</p>
                     <time className="shrink-0 text-xs text-ink-muted" dateTime={n.createdAt}>

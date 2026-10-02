@@ -1,4 +1,4 @@
-import type { Circle, Membership, Payment, Round, User } from "@prisma/client";
+import type { Circle, Membership, Payment, Round, User } from "../db.js";
 import {
   circleAbi,
   circleFactoryAbi,

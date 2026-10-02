@@ -22,7 +22,7 @@ const satang = z.coerce.bigint().positive();
 export const createCircleSchema = z
   .object({
     name: z.string().trim().min(3).max(60),
-    type: z.nativeEnum(CircleType),
+    type: z.enum(CircleType),
     principal: satang,
     maxMembers: z.number().int().min(2).max(LEGAL_CAPS.maxMembers),
     hostTakesFirst: z.boolean().default(true),
@@ -37,11 +37,11 @@ export const createCircleSchema = z
     private: z.boolean().default(true),
   })
   .refine((c) => c.principal * BigInt(c.maxMembers) <= LEGAL_CAPS.maxPoolValue, {
-    message: "มูลค่าทุนของวงเกินเพดานตามกฎหมาย",
+    error: "มูลค่าทุนของวงเกินเพดานตามกฎหมาย",
     path: ["principal"],
   })
   .refine((c) => c.bidWindow + c.revealWindow + c.paymentWindow + c.grace <= c.period, {
-    message: "ช่วงประมูล + เปิดซอง + ชำระ + ผ่อนผัน ต้องไม่เกินระยะเวลาต่องวด",
+    error: "ช่วงประมูล + เปิดซอง + ชำระ + ผ่อนผัน ต้องไม่เกินระยะเวลาต่องวด",
     path: ["period"],
   });
 

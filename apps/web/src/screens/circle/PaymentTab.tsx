@@ -93,7 +93,7 @@ function RecipientView({ circle, round }: TabProps & { round: Round }) {
           const st = paymentLabel[p.status];
           const link = txUrl(config?.explorerUrl, p.txHash);
           return (
-            <li key={p.payer} className="rounded-2xl bg-white p-3 shadow-sm">
+            <li key={p.payer} className="rounded-2xl bg-white p-3 shadow-xs">
               <div className="flex items-center gap-3">
                 <Avatar name={p.payerName} src={m?.pictureUrl} size={36} />
                 <div className="min-w-0 flex-1">
@@ -210,7 +210,7 @@ export default function PaymentTab(props: TabProps) {
       )}
 
       <SectionTitle>สถานะสมาชิกงวดนี้</SectionTitle>
-      <ul className="divide-y divide-gray-100 rounded-2xl bg-white shadow-sm">
+      <ul className="divide-y divide-gray-100 rounded-2xl bg-white shadow-xs">
         {round.payments.map((p) => (
           <li key={p.payer} className="flex items-center justify-between p-3 text-sm">
             <span className="text-ink">{p.payerName}</span>

@@ -133,7 +133,7 @@ export const circleSummary = z.object({
   name: z.string(),
   address: address.nullable(),
   status: CircleStatus,
-  type: z.nativeEnum(CircleType),
+  type: z.enum(CircleType),
   principal: amount,
   maxMembers: z.number().int(),
   memberCount: z.number().int(),

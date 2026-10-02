@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { CircleType, type CircleSummary } from "@bankforall/shared";
 import { api } from "@/api/endpoints";
 import { useIntent } from "@/hooks/useIntent";

@@ -1,4 +1,4 @@
-import { Prisma, type User } from "@prisma/client";
+import { Prisma, type User } from "../db.js";
 import { circleAbi } from "@bankforall/shared";
 import { encodeFunctionData, getAddress, type Address } from "viem";
 import { signKeyRotation } from "../chain/signing.js";

@@ -1,4 +1,4 @@
-import type { User } from "@prisma/client";
+import type { User } from "../db.js";
 import type { MeResponse } from "@bankforall/shared";
 import { CONSENT_VERSION } from "@bankforall/shared";
 import type { Ctx } from "../context.js";

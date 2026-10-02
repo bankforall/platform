@@ -30,7 +30,7 @@ export default function PhoneStep({ onDone }: { onDone: () => void }) {
     }
   };
 
-  const verify = async (e: React.FormEvent) => {
+  const verify = async (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
     setBusy(true);
     setError(null);

@@ -12,7 +12,7 @@ jobs:
       run:
         working-directory: packages/contracts
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: recursive
       - uses: foundry-rs/foundry-toolchain@v1
@@ -23,9 +23,9 @@ jobs:
   typescript:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
           cache: pnpm
@@ -43,17 +43,17 @@ jobs:
     needs: [contracts, typescript]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: recursive
       - uses: foundry-rs/foundry-toolchain@v1
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: docker compose -f docker-compose.dev.yml up -d --wait postgres redis minio anvil
+      - run: docker compose -f docker-compose.dev.yml up -d --wait postgres redis s3 anvil
       - run: ./scripts/dev-deploy.sh
       - run: pnpm --filter @bankforall/shared build
       - name: Migrate
@@ -72,7 +72,7 @@ jobs:
           pnpm --filter @bankforall/e2e test
       - if: failure()
         run: tail -n 200 /tmp/api.log /tmp/worker.log /tmp/web.log || true
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: playwright-report
@@ -82,7 +82,7 @@ jobs:
     needs: [typescript]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
       - run: docker build -f apps/api/Dockerfile -t bankforall-api .
       - run: docker build -f apps/web/Dockerfile -t bankforall-web .

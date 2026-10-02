@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 # Build from the repo root:  docker build -f apps/api/Dockerfile -t bankforall-api .
-FROM node:20-bookworm-slim AS base
-RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates && rm -rf /var/lib/apt/lists/*
+FROM node:24-trixie-slim AS base
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
 RUN corepack enable
 WORKDIR /repo
 
@@ -17,8 +17,7 @@ COPY apps/api apps/api
 RUN pnpm --filter @bankforall/shared build \
  && pnpm --filter @bankforall/api exec prisma generate \
  && pnpm --filter @bankforall/api build \
- && pnpm --filter @bankforall/api deploy --prod --legacy /out \
- && cd /out && npx prisma generate
+ && pnpm --filter @bankforall/api deploy --prod /out
 
 FROM base AS runtime
 ENV NODE_ENV=production

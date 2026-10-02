@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.37;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {ERC2771Context} from "@openzeppelin/contracts/metatx/ERC2771Context.sol";
@@ -94,7 +94,7 @@ contract Circle is Initializable, ERC2771Context {
     mapping(uint8 => mapping(address => Payment)) public payments;
 
     event MemberJoined(address indexed member, uint8 index, uint8 seat, uint32 reputation);
-    event CircleStarted(uint64 at);
+    event CircleStarted(uint64 startedAt);
     event CircleCancelled();
     event CircleCompleted();
     event RoundOpened(uint8 indexed round, bool bidding, uint64 biddingEnds, uint64 revealEnds);

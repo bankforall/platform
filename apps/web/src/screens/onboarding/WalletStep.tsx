@@ -68,7 +68,7 @@ export default function WalletStep({ onDone }: { onDone: () => void }) {
           ทุกการกระทำในวงแชร์ (เข้าวง ประมูล แจ้งโอน ยืนยันรับเงิน) จะถูกลงนามด้วยกุญแจที่สร้างและเก็บไว้บนเครื่องนี้เท่านั้น
           บริษัทไม่สามารถทำรายการแทนคุณได้ — หลักฐานจึงมีน้ำหนัก
         </p>
-        <ul className="space-y-2 rounded-2xl bg-white p-4 text-sm text-ink shadow-sm">
+        <ul className="space-y-2 rounded-2xl bg-white p-4 text-sm text-ink shadow-xs">
           <li>1. ตั้ง PIN 6 หลักสำหรับยืนยันทุกรายการ</li>
           <li>2. จดรหัสกู้คืนบัญชี ใช้เมื่อเปลี่ยนหรือทำโทรศัพท์หาย</li>
         </ul>
@@ -117,7 +117,7 @@ export default function WalletStep({ onDone }: { onDone: () => void }) {
           จดหรือบันทึกรหัสนี้ไว้ในที่ปลอดภัย <strong className="text-danger">รหัสนี้จะแสดงครั้งเดียว</strong> และบริษัทไม่มีสำเนา
           หากเปลี่ยนเครื่องโดยไม่มีรหัสนี้ ต้องยืนยันตัวตนใหม่กับเจ้าหน้าที่
         </p>
-        <div className="grid grid-cols-3 gap-2 rounded-2xl bg-white p-4 font-mono text-lg font-semibold tracking-wider text-ink shadow-sm" aria-label="รหัสกู้คืน" data-testid="recovery-code" data-code={code}>
+        <div className="grid grid-cols-3 gap-2 rounded-2xl bg-white p-4 font-mono text-lg font-semibold tracking-wider text-ink shadow-xs" aria-label="รหัสกู้คืน" data-testid="recovery-code" data-code={code}>
           {groups.map((g, i) => (
             <span key={i} className="rounded-lg bg-surface py-2 text-center">
               <span className="sr-only">ชุดที่ {i + 1}: </span>

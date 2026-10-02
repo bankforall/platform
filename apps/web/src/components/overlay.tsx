@@ -85,7 +85,7 @@ export function BottomSheet({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="relative max-h-[92vh] w-full max-w-app overflow-y-auto rounded-t-3xl bg-white p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-2xl focus:outline-none"
+        className="relative max-h-[92vh] w-full max-w-app overflow-y-auto rounded-t-3xl bg-white p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-2xl focus:outline-hidden"
       >
         <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-gray-200" aria-hidden />
         <div className="mb-4 flex items-center justify-between">

@@ -1,5 +1,5 @@
-import { forwardRef, useId, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode } from "react";
-import { Link } from "react-router-dom";
+import { useId, type Ref, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode } from "react";
+import { Link } from "react-router";
 
 export function cx(...classes: (string | false | null | undefined)[]): string {
   return classes.filter(Boolean).join(" ");
@@ -16,16 +16,24 @@ const variants: Record<Variant, string> = {
 };
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+  ref?: Ref<HTMLButtonElement>;
   variant?: Variant;
   loading?: boolean;
   block?: boolean;
   size?: "md" | "sm";
 }
 
-export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
-  { variant = "primary", loading, block, size = "md", className, children, disabled, ...rest },
+export function Button({
   ref,
-) {
+  variant = "primary",
+  loading,
+  block,
+  size = "md",
+  className,
+  children,
+  disabled,
+  ...rest
+}: ButtonProps) {
   return (
     <button
       ref={ref}
@@ -44,7 +52,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       {children}
     </button>
   );
-});
+}
 
 export function Spinner({ className = "h-6 w-6" }: { className?: string }) {
   return (
@@ -90,20 +98,18 @@ export function EmptyState({ title, children, icon = "🌱" }: { title: string; 
 }
 
 export function Card({ className, children }: { className?: string; children: ReactNode }) {
-  return <section className={cx("rounded-2xl bg-white p-4 shadow-sm", className)}>{children}</section>;
+  return <section className={cx("rounded-2xl bg-white p-4 shadow-xs", className)}>{children}</section>;
 }
 
 interface FieldProps extends InputHTMLAttributes<HTMLInputElement> {
+  ref?: Ref<HTMLInputElement>;
   label: string;
   error?: string;
   hint?: ReactNode;
   suffix?: ReactNode;
 }
 
-export const Field = forwardRef<HTMLInputElement, FieldProps>(function Field(
-  { label, error, hint, suffix, className, id, ...rest },
-  ref,
-) {
+export function Field({ ref, label, error, hint, suffix, className, id, ...rest }: FieldProps) {
   const autoId = useId();
   const inputId = id ?? autoId;
   return (
@@ -118,7 +124,7 @@ export const Field = forwardRef<HTMLInputElement, FieldProps>(function Field(
           aria-invalid={!!error || undefined}
           aria-describedby={error ? `${inputId}-err` : hint ? `${inputId}-hint` : undefined}
           className={cx(
-            "w-full rounded-xl border bg-surface-input px-4 py-3 text-ink placeholder:text-ink-muted/70 focus:border-primary focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/30",
+            "w-full rounded-xl border bg-surface-input px-4 py-3 text-ink placeholder:text-ink-muted/70 focus:border-primary focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-primary/30",
             error ? "border-danger" : "border-transparent",
             suffix ? "pr-14" : "",
           )}
@@ -137,7 +143,7 @@ export const Field = forwardRef<HTMLInputElement, FieldProps>(function Field(
       ) : null}
     </div>
   );
-});
+}
 
 type Tone = "neutral" | "primary" | "success" | "warn" | "danger";
 const tones: Record<Tone, string> = {

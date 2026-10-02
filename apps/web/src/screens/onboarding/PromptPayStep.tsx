@@ -19,7 +19,7 @@ export default function PromptPayStep({ me, onDone }: { me: MeResponse; onDone: 
   const [error, setError] = useState<string | null>(null);
   const invalid = value ? validatePromptPay(value) : null;
 
-  const submit = async (e: React.FormEvent) => {
+  const submit = async (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
     setBusy(true);
     setError(null);

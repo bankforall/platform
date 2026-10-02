@@ -1,8 +1,44 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+/* Design tokens (Figma "Debt/Invest"). Utilities: bg-primary, text-ink-muted, bg-surface-input, max-w-app, … */
+@theme {
+  --color-primary: #7165e3;
+  --color-primary-active: #7c6eff;
+  --color-primary-dim: #665ad9;
+  --color-primary-soft: #eeecfc;
+
+  --color-ink: #1c1939;
+  --color-ink-soft: #2c2948;
+  --color-ink-muted: #6b6a80;
+
+  --color-surface: #f9f9fb;
+  --color-surface-input: #f7f7f7;
+
+  --color-success: #22a06b;
+  --color-success-soft: #dcf5e8;
+  --color-warn: #ffbf1e;
+  --color-warn-soft: #fff4d6;
+  --color-danger: #e5484d;
+  --color-danger-soft: #fde8e8;
+
+  --font-sans: "DM Sans", "IBM Plex Sans Thai", system-ui, sans-serif;
+  --container-app: 28rem;
+}
 
 @layer base {
+  /* Tailwind 4 defaults borders to currentColor; keep the v3 gray-200 the design was built with. */
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentColor);
+  }
+  /* Tailwind 4 no longer sets a pointer cursor on buttons. */
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
   html {
     -webkit-tap-highlight-color: transparent;
     background: #e9e8f2;
@@ -11,7 +47,7 @@
     @apply bg-[#E9E8F2] font-sans text-ink antialiased;
   }
   :focus-visible {
-    outline-color: #7165e3;
+    outline-color: var(--color-primary);
   }
 }
 

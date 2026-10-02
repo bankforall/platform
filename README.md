@@ -16,11 +16,11 @@ deploy               docker-compose.prod.yml, Caddyfile, backup
 
 ## พัฒนาในเครื่อง
 
-ต้องมี Node 20+, pnpm 10, Docker และ [Foundry](https://getfoundry.sh)
+ต้องมี Node 24 LTS, pnpm 12 (`corepack enable`), Docker และ [Foundry](https://getfoundry.sh)
 
 ```bash
 pnpm install
-docker compose -f docker-compose.dev.yml up -d      # postgres, redis, minio, anvil
+docker compose -f docker-compose.dev.yml up -d      # postgres, redis, s3 (SeaweedFS), anvil
 ./scripts/dev-deploy.sh                             # deploy contracts → เขียน apps/api/.env
 pnpm --filter @bankforall/shared build
 cd apps/api && set -a && . ./.env && set +a && npx prisma migrate deploy

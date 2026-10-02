@@ -40,7 +40,7 @@ export function SeatPicker({
               onClick={() => onChange(seat)}
               className={cx(
                 "flex w-full items-center justify-between rounded-2xl border-2 bg-white p-3 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary",
-                selected ? "border-primary bg-primary-soft" : "border-transparent shadow-sm",
+                selected ? "border-primary bg-primary-soft" : "border-transparent shadow-xs",
                 isTaken && "opacity-60",
               )}
             >

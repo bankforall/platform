@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { api, qk } from "@/api/endpoints";
 import { cx } from "./ui";

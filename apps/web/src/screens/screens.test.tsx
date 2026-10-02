@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { circleDetail, circleSummary, meResponse, type CircleDetail, type MeResponse } from "@bankforall/shared";
 import { ToastProvider } from "@/components/overlay";
@@ -156,7 +156,8 @@ describe("screens render with contract-valid data", () => {
     await clearDevice();
     ME = await storeLocalKey(newPrivateKey());
     vi.stubGlobal("fetch", vi.fn((url: string) => routes(url)));
-    vi.spyOn(console, "error").mockImplementation((...args) => errors.push(args));
+    vi.spyOn(console, "error").mockImplementation((...args) => errors.push(["error", ...args]));
+    vi.spyOn(console, "warn").mockImplementation((...args) => errors.push(["warn", ...args]));
     HTMLCanvasElement.prototype.getContext = vi.fn() as never;
     errors.length = 0;
   });
@@ -196,7 +197,6 @@ describe("screens render with contract-valid data", () => {
   });
 
   afterEach(() => {
-    const real = errors.filter((e) => !String((e as unknown[])[0]).includes("not wrapped in act"));
-    expect(real).toEqual([]);
+    expect(errors).toEqual([]);
   });
 });

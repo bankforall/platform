@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.37;
 
 import {BaseTest} from "./Base.t.sol";
 import {Circle} from "../src/Circle.sol";

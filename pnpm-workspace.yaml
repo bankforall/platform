@@ -2,3 +2,12 @@ packages:
   - "apps/*"
   - "packages/*"
   - "e2e"
+
+# Supply-chain protection: never install a version published less than a day ago.
+minimumReleaseAge: 1440
+
+# Packages allowed to run install scripts (everything else is blocked).
+allowBuilds:
+  "@prisma/engines": true
+  esbuild: true
+  prisma: true

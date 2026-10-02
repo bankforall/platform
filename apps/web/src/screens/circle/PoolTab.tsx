@@ -52,7 +52,7 @@ export default function PoolTab({ circle }: TabProps) {
                 )}
                 aria-hidden
               />
-              <div className={cx("rounded-2xl bg-white p-3 shadow-sm", isCurrent && "ring-2 ring-primary")}>
+              <div className={cx("rounded-2xl bg-white p-3 shadow-xs", isCurrent && "ring-2 ring-primary")}>
                 <div className="flex items-center justify-between">
                   <p className="font-medium text-ink">งวดที่ {n}</p>
                   {done ? <Chip tone="success">เสร็จ</Chip> : isCurrent ? <Chip tone="primary">งวดปัจจุบัน</Chip> : <Chip>รอ</Chip>}

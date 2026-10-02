@@ -1,4 +1,4 @@
-import type { User } from "@prisma/client";
+import type { User } from "../db.js";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { jwtVerify, SignJWT } from "jose";
 import type { Ctx } from "../context.js";

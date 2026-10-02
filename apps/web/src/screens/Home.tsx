@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { api, qk } from "@/api/endpoints";
 import { errorMessage } from "@/api/client";

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
+import { Navigate, useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { privateKeyToAccount } from "viem/accounts";
 import { api } from "@/api/endpoints";
@@ -27,7 +27,7 @@ export default function Restore() {
   if (!me.data.walletAddress) return <Navigate to="/onboarding" replace />;
   const expected = me.data.walletAddress;
 
-  const decrypt = async (e: React.FormEvent) => {
+  const decrypt = async (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
     setBusy(true);
     setError(null);
@@ -84,7 +84,7 @@ export default function Restore() {
             <Button type="submit" block loading={busy} disabled={!isValidRecoveryCode(code)}>
               กู้คืน
             </Button>
-            <details className="rounded-2xl bg-white p-4 text-sm text-ink-muted shadow-sm">
+            <details className="rounded-2xl bg-white p-4 text-sm text-ink-muted shadow-xs">
               <summary className="cursor-pointer font-medium text-ink">ทำรหัสกู้คืนหาย?</summary>
               <p className="mt-2">
                 ติดต่อเจ้าหน้าที่ผ่าน LINE Official เพื่อยืนยันตัวตนอีกครั้ง เจ้าหน้าที่จะออกกุญแจใหม่ให้และย้ายสมาชิกภาพในทุกวงไปยังกุญแจใหม่

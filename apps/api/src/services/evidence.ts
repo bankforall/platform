@@ -1,7 +1,7 @@
 import { CircleType, circleTypeLabel, formatBaht } from "@bankforall/shared";
 import type { Ctx } from "../context.js";
 import { detailView } from "./circles.js";
-import type { User } from "@prisma/client";
+import type { User } from "../db.js";
 import { forbidden } from "../errors.js";
 
 const esc = (s: unknown) =>

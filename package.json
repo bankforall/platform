@@ -1,9 +1,9 @@
 {
   "name": "bankforall-platform",
   "private": true,
-  "packageManager": "pnpm@10.34.3",
+  "packageManager": "pnpm@12.8.1",
   "engines": {
-    "node": ">=20"
+    "node": ">=24"
   },
   "scripts": {
     "build": "turbo run build",
@@ -12,14 +12,6 @@
     "test:contracts": "cd packages/contracts && forge test"
   },
   "devDependencies": {
-    "turbo": "^2.5.0"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "@prisma/client",
-      "@prisma/engines",
-      "esbuild",
-      "prisma"
-    ]
+    "turbo": "^2.11.6"
   }
 }

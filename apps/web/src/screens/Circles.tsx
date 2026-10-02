@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { api, qk } from "@/api/endpoints";
 import { errorMessage } from "@/api/client";
@@ -35,7 +35,7 @@ export default function Circles() {
       </Header>
       <main className="space-y-3 px-4 py-4">
         <form
-          className="flex items-end gap-2 rounded-2xl bg-white p-3 shadow-sm"
+          className="flex items-end gap-2 rounded-2xl bg-white p-3 shadow-xs"
           onSubmit={(e) => {
             e.preventDefault();
             if (code.trim()) navigate(`/join/${encodeURIComponent(code.trim())}`);

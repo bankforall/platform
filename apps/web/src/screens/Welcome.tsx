@@ -1,4 +1,4 @@
-import { Link, Navigate, useSearchParams } from "react-router-dom";
+import { Link, Navigate, useSearchParams } from "react-router";
 import { useMe } from "@/hooks/session";
 import { LinkButton } from "@/components/ui";
 

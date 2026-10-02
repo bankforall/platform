@@ -2,11 +2,11 @@
 
 [← v2](./README.md)
 
-ติดตั้งบน VPS เครื่องเดียวด้วย Docker Compose: Caddy (HTTPS อัตโนมัติ) + API + worker + PostgreSQL + Redis + MinIO
+ติดตั้งบน VPS เครื่องเดียวด้วย Docker Compose: Caddy 2.11 (HTTPS อัตโนมัติ) + API/worker (Node 24 LTS) + PostgreSQL 18 + Redis 8 + SeaweedFS (S3)
 โดยใช้ smart contract บน **Base** (ทดสอบบน Base Sepolia ก่อน)
 
 ```
-Internet ──443──▶ web (Caddy: PWA + /api proxy, TLS) ──▶ api:4000 ──▶ postgres / redis / minio
+Internet ──443──▶ web (Caddy: PWA + /api proxy, TLS) ──▶ api:4000 ──▶ postgres / redis / s3 (SeaweedFS)
                                                         worker ─────▶ (same) + Base RPC
 ```
 
@@ -21,6 +21,11 @@ Internet ──443──▶ web (Caddy: PWA + /api proxy, TLS) ──▶ api:400
 | SMS provider (Twilio หรือเพิ่ม adapter ผู้ให้บริการไทยใน `apps/api/src/providers/sms.ts`) | OTP | |
 | RPC ของ Base (เช่น Alchemy/QuickNode) | อ่าน/เขียน chain | public RPC ใช้ทดสอบได้แต่มี rate limit |
 | กุญแจ 4 ชุด (ข้อ 1) | deploy, relayer, keeper, attester | |
+
+> **Object storage:** ใช้ SeaweedFS (Apache-2.0) แทน MinIO ซึ่งเลิกพัฒนา (repo archived และ image ถูกลบจาก Docker Hub แล้ว)
+> จะใช้ S3 แบบ managed (เช่น AWS S3 ap-southeast-1, Cloudflare R2) แทนก็ได้ โดยตั้ง `S3_ENDPOINT`/keys แล้วลบ service `s3` ออก
+>
+> **PostgreSQL 18** เก็บข้อมูลที่ `/var/lib/postgresql` (ต่างจากเวอร์ชันก่อน) — ถ้าย้ายจากฐานข้อมูลเดิมให้ใช้ `pg_dump`/`pg_restore` ตาม `backup.sh`
 
 ## 1. กุญแจ (keys)
 
@@ -65,7 +70,7 @@ curl https://<domain>/api/health              # {"ok":true,...,"worker":true,"ga
 ```
 
 > ⚠️ รัน `docker compose` จาก shell ที่ **ไม่มี** ตัวแปรชื่อเดียวกันค้างอยู่ — ตัวแปรใน shell มีลำดับสูงกว่า `--env-file`
-> (เจอจริงตอนทดสอบ: MinIO ได้รหัสผ่านคนละค่ากับ API) ถ้าไม่แน่ใจให้ใช้ `env -i PATH=$PATH HOME=$HOME docker compose ...`
+> (เจอจริงตอนทดสอบ: storage ได้รหัสผ่านคนละค่ากับ API) ถ้าไม่แน่ใจให้ใช้ `env -i PATH=$PATH HOME=$HOME docker compose ...`
 
 - `migrate` รัน `prisma migrate deploy` อัตโนมัติก่อน api/worker ทุกครั้งที่ `up`
 - **ห้าม** ตั้ง `DEV_LOGIN=true` ใน production (ระบบไม่ยอมเริ่ม)

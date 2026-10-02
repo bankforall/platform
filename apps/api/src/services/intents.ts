@@ -1,4 +1,4 @@
-import type { TxIntent, User } from "@prisma/client";
+import type { TxIntent, User } from "../db.js";
 import {
   bidHash,
   circleAbi,

@@ -14,8 +14,7 @@
     "resolveJsonModule": true,
     "noEmit": true,
     "types": ["vite/client", "vite-plugin-pwa/client"],
-    "baseUrl": ".",
-    "paths": { "@/*": ["src/*"] }
+    "paths": { "@/*": ["./src/*"] }
   },
   "include": ["src"]
 }

@@ -1,6 +1,6 @@
 # apps/web — Bank For All PWA
 
-Mobile-first PWA (Thai) — React 18 + Vite 6 + Tailwind + React Router + TanStack Query + viem.
+Mobile-first PWA (Thai) — React 19 + Vite 8 + Tailwind 4 (CSS-first `@theme` in `src/styles.css`) + React Router 8 + TanStack Query 5 + viem 2. Node 24 / pnpm 12.
 Talks to `apps/api` only through the contract in `@bankforall/shared` (`src/api/endpoints.ts` validates every response with the shared zod schemas).
 
 ```bash
@@ -34,7 +34,7 @@ The service worker never caches `/api/*`.
 `e2e/` drives this app in Chromium (390×844) against the real API, worker and an anvil chain.
 
 ```bash
-docker compose -f docker-compose.dev.yml up -d          # postgres, redis, minio, anvil (+ contracts deployed)
+docker compose -f docker-compose.dev.yml up -d          # postgres, redis, s3 (SeaweedFS), anvil (+ contracts deployed)
 cd apps/api && set -a && . ./.env && set +a
 npx tsx src/server.ts &                                  # API :4000 (or PORT=4001 …)
 npx tsx src/worker.ts &                                  # keeper/indexer

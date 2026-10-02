@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { CircleType, type CircleStatus, type CircleSummary } from "@bankforall/shared";
 import { Chip } from "./ui";
 import { baht, percent, periodLabel } from "@/lib/format";
@@ -26,7 +26,7 @@ export function CircleCard({ circle, to }: { circle: CircleSummary; to?: string 
   return (
     <Link
       to={to ?? `/circles/${circle.id}`}
-      className="block rounded-2xl bg-white p-4 shadow-sm transition hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+      className="block rounded-2xl bg-white p-4 shadow-xs transition hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">

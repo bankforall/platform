@@ -1,4 +1,4 @@
-import { Prisma, type PaymentStatus } from "@prisma/client";
+import { Prisma, type PaymentStatus } from "../db.js";
 import { amountDue, circleAbi, circleFactoryAbi, formatBaht, type CircleRules } from "@bankforall/shared";
 import { parseEventLogs, type Log } from "viem";
 import type { Ctx } from "../context.js";

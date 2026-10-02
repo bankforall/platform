@@ -73,7 +73,7 @@ export default function KycStep({ me, onDone }: { me: MeResponse; onDone: () => 
   const idInvalid = nationalId.length === 13 && !isValidThaiId(nationalId);
   const ready = fullName.trim().length >= 3 && isValidThaiId(nationalId) && idCard && selfie;
 
-  const submit = async (e: React.FormEvent) => {
+  const submit = async (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!ready) return;
     setBusy(true);

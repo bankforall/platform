@@ -1,4 +1,4 @@
-import { PrismaClient } from "@prisma/client";
+import { createDb, type PrismaClient } from "./db.js";
 import { Redis } from "ioredis";
 import type { FastifyBaseLogger } from "fastify";
 import { createChain, type Chain } from "./chain/clients.js";
@@ -29,7 +29,7 @@ export function createCtx(config: Config, log: FastifyBaseLogger): Ctx {
   return {
     config,
     log,
-    db: new PrismaClient(),
+    db: createDb(config.DATABASE_URL),
     redis,
     enc,
     chain: createChain(config, redis),

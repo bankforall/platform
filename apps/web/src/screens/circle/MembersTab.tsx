@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { CircleType } from "@bankforall/shared";
 import { api } from "@/api/endpoints";
 import { useIntent } from "@/hooks/useIntent";
@@ -90,7 +90,7 @@ export default function MembersTab(props: TabProps) {
       <SectionTitle>สมาชิก</SectionTitle>
       <ul className="-mx-4 flex gap-3 overflow-x-auto px-4 pb-2" aria-label="สมาชิกในวง">
         {members.map((m) => (
-          <li key={m.address} className="flex w-28 shrink-0 flex-col items-center rounded-2xl bg-white p-3 text-center shadow-sm">
+          <li key={m.address} className="flex w-28 shrink-0 flex-col items-center rounded-2xl bg-white p-3 text-center shadow-xs">
             <Avatar name={m.displayName} src={m.pictureUrl} size={56} />
             <p className="mt-2 w-full truncate text-sm font-medium text-ink">{sameAddress(m.address, myAddress) ? "คุณ" : m.displayName}</p>
             <p className="text-xs text-ink-muted">{isFix ? `ที่นั่ง ${m.seat + 1}` : `มือที่ ${m.index + 1}`}</p>
@@ -99,7 +99,7 @@ export default function MembersTab(props: TabProps) {
       </ul>
 
       <SectionTitle>รายละเอียด</SectionTitle>
-      <ul className="divide-y divide-gray-100 rounded-2xl bg-white shadow-sm">
+      <ul className="divide-y divide-gray-100 rounded-2xl bg-white shadow-xs">
         {members.map((m) => (
           <li key={m.address} className="flex items-center gap-3 p-3">
             <Avatar name={m.displayName} src={m.pictureUrl} />

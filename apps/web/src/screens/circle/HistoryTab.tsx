@@ -14,7 +14,7 @@ export default function HistoryTab({ circle }: TabProps) {
   const [reason, setReason] = useState("");
   const rounds = [...circle.rounds].sort((a, b) => b.number - a.number);
 
-  const dispute = async (e: React.FormEvent) => {
+  const dispute = async (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
     const res = await run({
       title: "แจ้งปัญหา",
@@ -52,7 +52,7 @@ export default function HistoryTab({ circle }: TabProps) {
       ) : (
         <div className="space-y-3">
           {rounds.map((r) => (
-            <details key={r.number} className="rounded-2xl bg-white p-4 shadow-sm" open={r.number === circle.currentRound}>
+            <details key={r.number} className="rounded-2xl bg-white p-4 shadow-xs" open={r.number === circle.currentRound}>
               <summary className="flex cursor-pointer items-center justify-between font-medium text-ink">
                 <span>งวดที่ {r.number}</span>
                 <span className="text-sm font-normal text-ink-muted">{date(r.startedAt)}</span>
@@ -87,7 +87,7 @@ export default function HistoryTab({ circle }: TabProps) {
       )}
 
       <SectionTitle>แจ้งปัญหา</SectionTitle>
-      <form onSubmit={dispute} className="space-y-3 rounded-2xl bg-white p-4 shadow-sm">
+      <form onSubmit={dispute} className="space-y-3 rounded-2xl bg-white p-4 shadow-xs">
         <p className="text-sm text-ink-muted">เช่น โอนแล้วแต่ผู้รับไม่ยืนยัน หรือยอดไม่ตรง การแจ้งจะถูกบันทึกถาวรและส่งให้เจ้าหน้าที่</p>
         <div>
           <label htmlFor="dispute-round" className="mb-1 block text-sm font-medium text-ink">
@@ -97,7 +97,7 @@ export default function HistoryTab({ circle }: TabProps) {
             id="dispute-round"
             value={round}
             onChange={(e) => setRound(Number(e.target.value))}
-            className="w-full rounded-xl bg-surface-input px-4 py-3 text-ink focus:outline-none focus:ring-2 focus:ring-primary/30"
+            className="w-full rounded-xl bg-surface-input px-4 py-3 text-ink focus:outline-hidden focus:ring-2 focus:ring-primary/30"
           >
             {Array.from({ length: Math.max(circle.currentRound, 1) }, (_, i) => (
               <option key={i + 1} value={i + 1}>
@@ -116,7 +116,7 @@ export default function HistoryTab({ circle }: TabProps) {
             value={reason}
             maxLength={2000}
             onChange={(e) => setReason(e.target.value)}
-            className="w-full rounded-xl bg-surface-input px-4 py-3 text-ink focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/30"
+            className="w-full rounded-xl bg-surface-input px-4 py-3 text-ink focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-primary/30"
           />
         </div>
         <Button type="submit" variant="secondary" block disabled={reason.trim().length < 5}>
