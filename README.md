@@ -3,7 +3,7 @@
 แพลตฟอร์มเปียแชร์ที่ **ไม่ถือเงิน**: สมาชิกโอนกันเองผ่าน PromptPay ส่วน smart contract บน Base ทำหน้าที่ตัดสินผู้รับแต่ละรอบ
 บังคับกติกา และเก็บหลักฐานที่ปลอมไม่ได้ ผู้ใช้ลงนามทุกรายการด้วยกุญแจในเครื่องของตัวเอง (ไม่ต้องรู้จัก crypto)
 
-เอกสาร: [`../docs/v2/`](../docs/v2/README.md) — [กติกา](../docs/v2/rules-spec.md) · [สถาปัตยกรรม](../docs/v2/architecture.md) · [deploy](../docs/v2/deployment.md) · [หน้าจอ](./design/screen-inventory.md)
+เอกสาร: [`docs/v2/`](./docs/v2/README.md) — [กติกา](./docs/v2/rules-spec.md) · [สถาปัตยกรรม](./docs/v2/architecture.md) · [deploy](./docs/v2/deployment.md) · [หน้าจอ](./design/screen-inventory.md)
 
 ```
 packages/contracts   CircleFactory + Circle (Solidity, Foundry)
