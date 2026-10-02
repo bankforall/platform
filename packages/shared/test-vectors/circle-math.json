@@ -1,0 +1,452 @@
+{
+  "_comment": "Shared oracle for packages/shared (vitest) and packages/contracts (forge). Amounts in satang. Bids are listed in commit order. type: 0=Fix 1=Float 2=Discount. seats = seat of each member (join order), Fix only.",
+  "vectors": [
+    {
+      "name": "fix-3-members",
+      "type": 0,
+      "principal": 50000,
+      "maxMembers": 3,
+      "hostTakesFirst": true,
+      "reputations": [
+        0,
+        0,
+        0
+      ],
+      "rounds": [
+        {
+          "bids": [],
+          "recipient": 0,
+          "winningBid": 0,
+          "dues": [
+            0,
+            50000,
+            50000
+          ],
+          "payout": 100000
+        },
+        {
+          "bids": [],
+          "recipient": 1,
+          "winningBid": 0,
+          "dues": [
+            50000,
+            0,
+            50000
+          ],
+          "payout": 100000
+        },
+        {
+          "bids": [],
+          "recipient": 2,
+          "winningBid": 0,
+          "dues": [
+            50000,
+            50000,
+            0
+          ],
+          "payout": 100000
+        }
+      ],
+      "fixRateBps": 0,
+      "seats": [
+        0,
+        1,
+        2
+      ]
+    },
+    {
+      "name": "fix-5-seats-plus-minus-10pct-figma-sit-in",
+      "type": 0,
+      "principal": 100000,
+      "maxMembers": 5,
+      "hostTakesFirst": false,
+      "fixRateBps": 1000,
+      "seats": [
+        2,
+        0,
+        4,
+        1,
+        3
+      ],
+      "reputations": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rounds": [
+        {
+          "bids": [],
+          "recipient": 1,
+          "winningBid": 0,
+          "dues": [
+            100000,
+            0,
+            90000,
+            105000,
+            95000
+          ],
+          "payout": 390000
+        },
+        {
+          "bids": [],
+          "recipient": 3,
+          "winningBid": 0,
+          "dues": [
+            100000,
+            110000,
+            90000,
+            0,
+            95000
+          ],
+          "payout": 395000
+        },
+        {
+          "bids": [],
+          "recipient": 0,
+          "winningBid": 0,
+          "dues": [
+            0,
+            110000,
+            90000,
+            105000,
+            95000
+          ],
+          "payout": 400000
+        },
+        {
+          "bids": [],
+          "recipient": 4,
+          "winningBid": 0,
+          "dues": [
+            100000,
+            110000,
+            90000,
+            105000,
+            0
+          ],
+          "payout": 405000
+        },
+        {
+          "bids": [],
+          "recipient": 2,
+          "winningBid": 0,
+          "dues": [
+            100000,
+            110000,
+            0,
+            105000,
+            95000
+          ],
+          "payout": 410000
+        }
+      ]
+    },
+    {
+      "name": "float-4-members-host-first",
+      "type": 1,
+      "principal": 100000,
+      "maxMembers": 4,
+      "hostTakesFirst": true,
+      "reputations": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "rounds": [
+        {
+          "bids": [],
+          "recipient": 0,
+          "winningBid": 0,
+          "dues": [
+            0,
+            100000,
+            100000,
+            100000
+          ],
+          "payout": 300000
+        },
+        {
+          "bids": [
+            {
+              "member": 2,
+              "amount": 5000
+            },
+            {
+              "member": 1,
+              "amount": 1000
+            }
+          ],
+          "recipient": 2,
+          "winningBid": 5000,
+          "dues": [
+            100000,
+            100000,
+            0,
+            100000
+          ],
+          "payout": 300000
+        },
+        {
+          "bids": [
+            {
+              "member": 1,
+              "amount": 3000
+            },
+            {
+              "member": 3,
+              "amount": 0
+            }
+          ],
+          "recipient": 1,
+          "winningBid": 3000,
+          "dues": [
+            100000,
+            0,
+            105000,
+            100000
+          ],
+          "payout": 305000
+        },
+        {
+          "bids": [],
+          "recipient": 3,
+          "winningBid": 0,
+          "dues": [
+            100000,
+            103000,
+            105000,
+            0
+          ],
+          "payout": 308000
+        }
+      ],
+      "fixRateBps": 0,
+      "seats": [
+        0,
+        1,
+        2,
+        3
+      ]
+    },
+    {
+      "name": "discount-4-members-host-first",
+      "type": 2,
+      "principal": 100000,
+      "maxMembers": 4,
+      "hostTakesFirst": true,
+      "reputations": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "rounds": [
+        {
+          "bids": [],
+          "recipient": 0,
+          "winningBid": 0,
+          "dues": [
+            0,
+            100000,
+            100000,
+            100000
+          ],
+          "payout": 300000
+        },
+        {
+          "bids": [
+            {
+              "member": 2,
+              "amount": 8000
+            },
+            {
+              "member": 3,
+              "amount": 7000
+            }
+          ],
+          "recipient": 2,
+          "winningBid": 8000,
+          "dues": [
+            100000,
+            92000,
+            0,
+            92000
+          ],
+          "payout": 284000
+        },
+        {
+          "bids": [
+            {
+              "member": 1,
+              "amount": 4000
+            }
+          ],
+          "recipient": 1,
+          "winningBid": 4000,
+          "dues": [
+            100000,
+            0,
+            100000,
+            96000
+          ],
+          "payout": 296000
+        },
+        {
+          "bids": [],
+          "recipient": 3,
+          "winningBid": 0,
+          "dues": [
+            100000,
+            100000,
+            100000,
+            0
+          ],
+          "payout": 300000
+        }
+      ],
+      "fixRateBps": 0,
+      "seats": [
+        0,
+        1,
+        2,
+        3
+      ]
+    },
+    {
+      "name": "float-tie-broken-by-reputation",
+      "type": 1,
+      "principal": 100000,
+      "maxMembers": 3,
+      "hostTakesFirst": false,
+      "reputations": [
+        50,
+        80,
+        70
+      ],
+      "rounds": [
+        {
+          "bids": [
+            {
+              "member": 2,
+              "amount": 2000
+            },
+            {
+              "member": 1,
+              "amount": 2000
+            }
+          ],
+          "recipient": 1,
+          "winningBid": 2000,
+          "dues": [
+            100000,
+            0,
+            100000
+          ],
+          "payout": 200000
+        },
+        {
+          "bids": [
+            {
+              "member": 2,
+              "amount": 500
+            },
+            {
+              "member": 0,
+              "amount": 1000
+            }
+          ],
+          "recipient": 0,
+          "winningBid": 1000,
+          "dues": [
+            0,
+            102000,
+            100000
+          ],
+          "payout": 202000
+        },
+        {
+          "bids": [],
+          "recipient": 2,
+          "winningBid": 0,
+          "dues": [
+            101000,
+            102000,
+            0
+          ],
+          "payout": 203000
+        }
+      ],
+      "fixRateBps": 0,
+      "seats": [
+        0,
+        1,
+        2
+      ]
+    },
+    {
+      "name": "float-no-bids-then-tie-broken-by-commit-order",
+      "type": 1,
+      "principal": 100000,
+      "maxMembers": 3,
+      "hostTakesFirst": false,
+      "reputations": [
+        10,
+        10,
+        10
+      ],
+      "rounds": [
+        {
+          "bids": [],
+          "recipient": 0,
+          "winningBid": 0,
+          "dues": [
+            0,
+            100000,
+            100000
+          ],
+          "payout": 200000
+        },
+        {
+          "bids": [
+            {
+              "member": 2,
+              "amount": 100
+            },
+            {
+              "member": 1,
+              "amount": 100
+            }
+          ],
+          "recipient": 2,
+          "winningBid": 100,
+          "dues": [
+            100000,
+            100000,
+            0
+          ],
+          "payout": 200000
+        },
+        {
+          "bids": [],
+          "recipient": 1,
+          "winningBid": 0,
+          "dues": [
+            100000,
+            0,
+            100100
+          ],
+          "payout": 200100
+        }
+      ],
+      "fixRateBps": 0,
+      "seats": [
+        0,
+        1,
+        2
+      ]
+    }
+  ]
+}

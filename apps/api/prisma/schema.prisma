@@ -1,0 +1,324 @@
+// Bank For All v2 — off-chain data.
+// The chain is the source of truth for circle state; Circle/Membership/Round/Payment rows are a
+// cache written only by the event ingester (src/services/ingest.ts). PII never goes on-chain.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum KycStatus {
+  NONE
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum CircleStatus {
+  DRAFT
+  OPEN
+  ACTIVE
+  COMPLETED
+  CANCELLED
+  FAILED
+}
+
+enum PaymentStatus {
+  NONE
+  DECLARED
+  ATTESTED
+  CONFIRMED
+  DEFAULTED
+}
+
+enum SlipVerify {
+  PENDING
+  VERIFIED
+  FAILED
+  SKIPPED
+}
+
+enum IntentStatus {
+  PREPARED
+  SUBMITTED
+  CONFIRMED
+  FAILED
+  EXPIRED
+}
+
+model User {
+  id              String    @id @default(cuid())
+  lineUserId      String?   @unique
+  displayName     String
+  pictureUrl      String?
+  role            Role      @default(USER)
+  phone           String?   @unique
+  phoneVerifiedAt DateTime?
+  promptPayId     String?
+  consentVersion  String?
+  consentAt       DateTime?
+  walletAddress   String?   @unique
+  /// Client-encrypted key backup (JSON); the server cannot decrypt it.
+  walletBackup    Json?
+  kycStatus       KycStatus @default(NONE)
+  /// Derived: reputationBase + on-chain history (see services/reputation.ts).
+  reputation      Int       @default(0)
+  /// Set by the KYC reviewer.
+  reputationBase  Int       @default(100)
+  /// Bumped to revoke all sessions.
+  sessionVersion  Int       @default(0)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  kycSubmissions KycSubmission[]
+  otps           OtpChallenge[]
+  hosted         Circle[]        @relation("host")
+  memberships    Membership[]
+  intents        TxIntent[]
+  notifications  Notification[]
+  slips          Slip[]
+  disputes       Dispute[]
+}
+
+model KycSubmission {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id])
+  fullNameEnc     String
+  /// HMAC of the national ID: detects one person with several accounts without storing the number.
+  nationalIdHash  String
+  nationalIdLast4 String
+  idCardKey       String
+  selfieKey       String
+  status          KycStatus @default(PENDING)
+  reason          String?
+  reviewerId      String?
+  createdAt       DateTime  @default(now())
+  reviewedAt      DateTime?
+
+  @@index([status, createdAt])
+  @@index([nationalIdHash])
+}
+
+model OtpChallenge {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id])
+  phone     String
+  codeHash  String
+  attempts  Int       @default(0)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, createdAt])
+}
+
+model Circle {
+  id             String       @id @default(cuid())
+  name           String
+  description    String?
+  address        String?      @unique
+  hostId         String
+  host           User         @relation("host", fields: [hostId], references: [id])
+  hostAddress    String
+  type           Int
+  principal      BigInt
+  maxMembers     Int
+  hostTakesFirst Boolean
+  fixRateBps     Int
+  minReputation  Int
+  period         Int
+  bidWindow      Int
+  revealWindow   Int
+  paymentWindow  Int
+  grace          Int
+  isPrivate      Boolean
+  inviteCode     String       @unique
+  status         CircleStatus @default(DRAFT)
+  currentRound   Int          @default(0)
+  createdTx      String?      @unique
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  memberships Membership[]
+  rounds      Round[]
+  payments    Payment[]
+  slips       Slip[]
+  bids        BidSecret[]
+  intents     TxIntent[]
+  disputes    Dispute[]
+
+  @@index([status, isPrivate])
+}
+
+model Membership {
+  id         String   @id @default(cuid())
+  circleId   String
+  circle     Circle   @relation(fields: [circleId], references: [id])
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id])
+  address    String
+  index      Int
+  seat       Int
+  reputation Int
+  hasWon     Boolean  @default(false)
+  wonRound   Int?
+  wonBid     BigInt   @default(0)
+  defaulted  Boolean  @default(false)
+  joinedAt   DateTime @default(now())
+
+  @@unique([circleId, address])
+  @@unique([circleId, index])
+  @@index([userId])
+}
+
+model Round {
+  id              String    @id @default(cuid())
+  circleId        String
+  circle          Circle    @relation(fields: [circleId], references: [id])
+  number          Int
+  startedAt       DateTime
+  bidding         Boolean
+  biddingEnds     DateTime?
+  revealEnds      DateTime?
+  decided         Boolean   @default(false)
+  recipient       String?
+  winningBid      BigInt    @default(0)
+  paymentDeadline DateTime?
+
+  @@unique([circleId, number])
+}
+
+model Payment {
+  id        String        @id @default(cuid())
+  circleId  String
+  circle    Circle        @relation(fields: [circleId], references: [id])
+  round     Int
+  payer     String
+  amount    BigInt?
+  status    PaymentStatus @default(NONE)
+  slipHash  String?
+  slipId    String?
+  txHash    String?
+  updatedAt DateTime      @updatedAt
+
+  @@unique([circleId, round, payer])
+}
+
+model Slip {
+  id           String     @id @default(cuid())
+  circleId     String
+  circle       Circle     @relation(fields: [circleId], references: [id])
+  round        Int
+  userId       String
+  user         User       @relation(fields: [userId], references: [id])
+  payer        String
+  storageKey   String
+  contentType  String
+  sha256       String
+  verify       SlipVerify @default(PENDING)
+  verifyDetail Json?
+  attestTx     String?
+  createdAt    DateTime   @default(now())
+
+  @@index([circleId, round])
+}
+
+/// Sealed-bid preimages, encrypted at rest, so the keeper can reveal on time.
+model BidSecret {
+  id        String   @id @default(cuid())
+  circleId  String
+  circle    Circle   @relation(fields: [circleId], references: [id])
+  round     Int
+  member    String
+  amountEnc String
+  saltEnc   String
+  committed Boolean  @default(false)
+  revealed  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@unique([circleId, round, member])
+}
+
+model TxIntent {
+  id        String       @id @default(cuid())
+  userId    String
+  user      User         @relation(fields: [userId], references: [id])
+  circleId  String?
+  circle    Circle?      @relation(fields: [circleId], references: [id])
+  kind      String
+  from      String
+  to        String
+  data      String
+  gas       BigInt
+  nonce     BigInt
+  deadline  Int
+  meta      Json?
+  status    IntentStatus @default(PREPARED)
+  txHash    String?
+  error     String?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@index([userId, createdAt])
+}
+
+model ChainEvent {
+  id          String   @id @default(cuid())
+  blockNumber BigInt
+  blockTime   DateTime
+  txHash      String
+  logIndex    Int
+  address     String
+  name        String
+  args        Json
+  createdAt   DateTime @default(now())
+
+  @@unique([txHash, logIndex])
+  @@index([address, blockNumber])
+}
+
+model ChainCursor {
+  id          String @id
+  blockNumber BigInt
+}
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id])
+  kind      String
+  /// De-duplicates reminders (e.g. "due:<circle>:<round>:d2").
+  dedupeKey String?   @unique
+  title     String
+  body      String
+  circleId  String?
+  readAt    DateTime?
+  pushedAt  DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, createdAt])
+}
+
+model Dispute {
+  id         String   @id @default(cuid())
+  circleId   String
+  circle     Circle   @relation(fields: [circleId], references: [id])
+  round      Int
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  reason     String
+  reasonHash String
+  txHash     String?
+  createdAt  DateTime @default(now())
+}

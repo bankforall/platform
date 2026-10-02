@@ -1,0 +1,29 @@
+import type { CircleDetail, PaymentStatus } from "@bankforall/shared";
+import { sameAddress } from "@/lib/format";
+
+export type Round = CircleDetail["rounds"][number];
+export type Member = CircleDetail["members"][number];
+
+export function currentRound(c: CircleDetail): Round | undefined {
+  return c.rounds.find((r) => r.number === c.currentRound);
+}
+
+export function memberByAddress(c: CircleDetail, address: string | null | undefined): Member | undefined {
+  return c.members.find((m) => sameAddress(m.address, address));
+}
+
+export function nameOf(c: CircleDetail, address: string | null | undefined): string {
+  return memberByAddress(c, address)?.displayName ?? "–";
+}
+
+export const paymentLabel: Record<PaymentStatus, { text: string; tone: "neutral" | "primary" | "success" | "warn" | "danger" }> = {
+  NONE: { text: "ยังไม่จ่าย", tone: "warn" },
+  DECLARED: { text: "แจ้งโอนแล้ว", tone: "primary" },
+  ATTESTED: { text: "สลิปถูกต้อง", tone: "primary" },
+  CONFIRMED: { text: "ผู้รับยืนยันแล้ว", tone: "success" },
+  DEFAULTED: { text: "ผิดนัด", tone: "danger" },
+};
+
+export function txUrl(explorer: string | null | undefined, hash: string | null | undefined): string | null {
+  return explorer && hash ? `${explorer.replace(/\/$/, "")}/tx/${hash}` : null;
+}

@@ -1,0 +1,22 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-tap-highlight-color: transparent;
+    background: #e9e8f2;
+  }
+  body {
+    @apply bg-[#E9E8F2] font-sans text-ink antialiased;
+  }
+  :focus-visible {
+    outline-color: #7165e3;
+  }
+}
+
+@media print {
+  nav {
+    display: none !important;
+  }
+}

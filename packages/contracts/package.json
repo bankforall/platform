@@ -1,0 +1,9 @@
+{
+  "name": "@bankforall/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "forge build && node export-abi.mjs",
+    "test": "forge test"
+  }
+}
