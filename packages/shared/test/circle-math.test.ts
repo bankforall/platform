@@ -3,6 +3,8 @@ import data from "../test-vectors/circle-math.json" with { type: "json" };
 import {
   CircleType,
   amountDue,
+  bidCap,
+  fixRateAllowed,
   needsBidding,
   seatPayment,
   selectRecipient,
@@ -22,6 +24,8 @@ describe("simulateCircle matches the shared test vectors", () => {
         maxMembers: v.maxMembers,
         hostTakesFirst: v.hostTakesFirst,
         fixRateBps: v.fixRateBps,
+        trustedReputation: v.trustedReputation,
+        maxBid: bidCap(BigInt(v.principal), v.periodDays * DAY, v.annualRateBps),
       };
       const bids = v.rounds.map((r) => r.bids.map((b) => ({ member: b.member, amount: BigInt(b.amount) })));
       const results = simulateCircle(rules, v.reputations, bids, v.seats);
@@ -90,6 +94,17 @@ describe("rules", () => {
     const fix = { ...float, type: CircleType.Fix, principal: 99999n, maxMembers: 6, fixRateBps: 1234 };
     const total = [0, 1, 2, 3, 4, 5].reduce((sum, s) => sum + seatPayment(fix, s), 0n);
     expect(total).toBe(99999n * 6n);
+  });
+});
+
+describe("policy caps (decisions D3)", () => {
+  it("annualises the bid cap like the contract", () => {
+    expect(bidCap(100000n, 30 * DAY, 1500)).toBe(1232n);
+    expect(bidCap(50n, 30 * DAY, 1500)).toBe(0n);
+  });
+  it("caps the Fix ladder per round", () => {
+    expect(fixRateAllowed(123, 30 * DAY, 1500)).toBe(true);
+    expect(fixRateAllowed(1000, 30 * DAY, 1500)).toBe(false);
   });
 });
 

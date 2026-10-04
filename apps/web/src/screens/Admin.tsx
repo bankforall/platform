@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { KeyRotationView } from "@bankforall/shared";
+import { LEGAL_CAPS, type KeyRotationView } from "@bankforall/shared";
 import { api, qk, type KeyRotationStatus, type KycReviewItem } from "@/api/endpoints";
 import { errorMessage } from "@/api/client";
 import { Header, Screen } from "@/components/layout";
@@ -12,10 +12,13 @@ import { Tabs } from "@/components/widgets";
 
 type Status = "PENDING" | "APPROVED" | "REJECTED";
 
+/** Starting reputation after KYC (decisions D2); trusted starts at LEGAL_CAPS.trustedReputation. */
+const DEFAULT_REPUTATION = 100;
+
 function Review({ item, onDone }: { item: KycReviewItem; onDone: () => void }) {
   const toast = useToast();
   const [reason, setReason] = useState("");
-  const [reputation, setReputation] = useState(100);
+  const [reputation, setReputation] = useState(DEFAULT_REPUTATION);
   const [busy, setBusy] = useState(false);
 
   const decide = async (approve: boolean) => {
@@ -52,10 +55,22 @@ function Review({ item, onDone }: { item: KycReviewItem; onDone: () => void }) {
       </div>
       {item.status === "PENDING" && (
         <>
-          <div className="grid grid-cols-2 gap-2">
-            <Field label="คะแนนเริ่มต้น" type="number" min={0} max={1000} value={reputation} onChange={(e) => setReputation(Number(e.target.value))} />
+          <div className="space-y-2">
+            <Field
+              label="คะแนนเริ่มต้น"
+              type="number"
+              min={0}
+              max={1000}
+              value={reputation}
+              onChange={(e) => setReputation(Math.max(0, Math.min(1000, Math.floor(Number(e.target.value) || 0))))}
+              hint={`ค่าปกติ ${DEFAULT_REPUTATION} · ${LEGAL_CAPS.trustedReputation} ขึ้นไป = "น่าเชื่อถือ" (รับเงินช่วงครึ่งแรกของวงและรับงวดแรกแบบมือนายวงได้) — ให้เฉพาะผู้ที่ยืนยันรายได้/ชุมชนได้`}
+            />
             <Field label="เหตุผล (ถ้าไม่อนุมัติ)" value={reason} onChange={(e) => setReason(e.target.value)} />
           </div>
+          <p className="text-xs text-ink-muted" aria-live="polite">
+            จะอนุมัติด้วยคะแนน <strong className="text-ink">{reputation}</strong>
+            {reputation >= LEGAL_CAPS.trustedReputation ? " — สมาชิกที่น่าเชื่อถือ" : " — สมาชิกทั่วไป"}
+          </p>
           <div className="flex gap-2">
             <Button className="flex-1" loading={busy} onClick={() => void decide(true)}>
               อนุมัติ

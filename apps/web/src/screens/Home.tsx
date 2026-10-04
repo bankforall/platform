@@ -7,7 +7,8 @@ import { Screen } from "@/components/layout";
 import { CircleCard } from "@/components/CircleCard";
 import { Countdown } from "@/components/widgets";
 import { KeyRotationNotice } from "@/components/KeyRotationNotice";
-import { Avatar, Card, EmptyState, ErrorState, LinkButton, Loading, SectionTitle } from "@/components/ui";
+import { Avatar, Button, Card, EmptyState, ErrorState, LinkButton, Loading, SectionTitle } from "@/components/ui";
+import { DefaultsBanner } from "@/components/RuleNotices";
 import { baht, date } from "@/lib/format";
 
 function greeting(): string {
@@ -42,6 +43,7 @@ export default function Home() {
 
       <main className="px-4">
         <KeyRotationNotice />
+        <DefaultsBanner count={me.outstandingDefaults} />
         {me.kycStatus === "PENDING" && (
           <p className="mb-3 rounded-xl bg-warn-soft px-4 py-3 text-sm text-amber-800">
             กำลังตรวจสอบตัวตน — สร้างหรือเข้าร่วมวงได้หลังผ่านการตรวจสอบ
@@ -69,12 +71,25 @@ export default function Home() {
         </section>
 
         <div className="mt-4 grid grid-cols-2 gap-3">
-          <LinkButton to="/circles/new" variant="secondary">
-            + สร้างวง
-          </LinkButton>
-          <LinkButton to="/circles?tab=discover" variant="secondary">
-            ค้นหาวง
-          </LinkButton>
+          {me.outstandingDefaults > 0 ? (
+            <>
+              <Button variant="secondary" disabled>
+                + สร้างวง
+              </Button>
+              <Button variant="secondary" disabled>
+                ค้นหาวง
+              </Button>
+            </>
+          ) : (
+            <>
+              <LinkButton to="/circles/new" variant="secondary">
+                + สร้างวง
+              </LinkButton>
+              <LinkButton to="/circles?tab=discover" variant="secondary">
+                ค้นหาวง
+              </LinkButton>
+            </>
+          )}
         </div>
 
         <SectionTitle action={<Link to="/circles" className="text-sm font-medium text-primary">ดูทั้งหมด</Link>}>วงของฉัน</SectionTitle>

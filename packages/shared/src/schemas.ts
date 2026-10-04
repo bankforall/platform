@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CircleType } from "./circle-math.js";
+import { bidCap, CircleType, fixRateAllowed } from "./circle-math.js";
 
 /**
  * Default legal caps under the Chit Fund Act B.E. 2534 (พ.ร.บ.การเล่นแชร์ พ.ศ. 2534).
@@ -11,6 +11,12 @@ export const LEGAL_CAPS = {
   /** principal × maxMembers, in satang (300,000 baht). */
   maxPoolValue: 300_000n * 100n,
   maxActiveCirclesPerHost: 3,
+  /** Annualised cap on interest bids, discounts and Fix ladders (decisions D3). */
+  maxAnnualRateBps: 1_500,
+  /** Reputation for early rounds and the host's first round (decisions D2). */
+  trustedReputation: 110,
+  /** Open circles may be cancelled by anyone after this (decisions D4). */
+  openTtlDays: 30,
 } as const;
 
 const HOUR = 3600;
@@ -39,6 +45,14 @@ export const createCircleSchema = z
   })
   .refine((c) => c.principal * BigInt(c.maxMembers) <= LEGAL_CAPS.maxPoolValue, {
     error: "มูลค่าทุนของวงเกินเพดานตามกฎหมาย",
+    path: ["principal"],
+  })
+  .refine((c) => c.type !== CircleType.Fix || fixRateAllowed(c.fixRateBps, c.period, LEGAL_CAPS.maxAnnualRateBps), {
+    error: "อัตราตามที่นั่งเกินเพดานดอกเบี้ยต่อปี",
+    path: ["fixRateBps"],
+  })
+  .refine((c) => c.type === CircleType.Fix || bidCap(c.principal, c.period, LEGAL_CAPS.maxAnnualRateBps) >= 1n, {
+    error: "เงินต้นหรือระยะงวดน้อยเกินไปสำหรับวงประมูล",
     path: ["principal"],
   })
   .refine((c) => c.bidWindow + c.revealWindow + c.paymentWindow + 2 * c.grace <= c.period, {

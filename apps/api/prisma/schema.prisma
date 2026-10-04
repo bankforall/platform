@@ -140,31 +140,35 @@ model OtpChallenge {
 }
 
 model Circle {
-  id             String       @id @default(cuid())
-  name           String
-  description    String?
-  address        String?      @unique
-  hostId         String
-  host           User         @relation("host", fields: [hostId], references: [id])
-  hostAddress    String
-  type           Int
-  principal      BigInt
-  maxMembers     Int
-  hostTakesFirst Boolean
-  fixRateBps     Int
-  minReputation  Int
-  period         Int
-  bidWindow      Int
-  revealWindow   Int
-  paymentWindow  Int
-  grace          Int
-  isPrivate      Boolean
-  inviteCode     String       @unique
-  status         CircleStatus @default(DRAFT)
-  currentRound   Int          @default(0)
-  createdTx      String?      @unique
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  id                String       @id @default(cuid())
+  name              String
+  description       String?
+  address           String?      @unique
+  hostId            String
+  host              User         @relation("host", fields: [hostId], references: [id])
+  hostAddress       String
+  type              Int
+  principal         BigInt
+  maxMembers        Int
+  hostTakesFirst    Boolean
+  fixRateBps        Int
+  minReputation     Int
+  period            Int
+  bidWindow         Int
+  revealWindow      Int
+  paymentWindow     Int
+  grace             Int
+  isPrivate         Boolean
+  inviteCode        String       @unique
+  /// Policy snapshot read from the contract at creation (decisions D2–D4).
+  maxBid            BigInt?
+  trustedReputation Int?
+  openUntil         DateTime?
+  status            CircleStatus @default(DRAFT)
+  currentRound      Int          @default(0)
+  createdTx         String?      @unique
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
 
   memberships Membership[]
   rounds      Round[]
@@ -216,17 +220,21 @@ model Round {
 }
 
 model Payment {
-  id        String        @id @default(cuid())
-  circleId  String
-  circle    Circle        @relation(fields: [circleId], references: [id])
-  round     Int
-  payer     String
-  amount    BigInt?
-  status    PaymentStatus @default(NONE)
-  slipHash  String?
-  slipId    String?
-  txHash    String?
-  updatedAt DateTime      @updatedAt
+  id           String        @id @default(cuid())
+  circleId     String
+  circle       Circle        @relation(fields: [circleId], references: [id])
+  round        Int
+  payer        String
+  amount       BigInt?
+  /// Part of the due set off against the recipient\'s unpaid debt to this payer (decisions D1).
+  offset       BigInt        @default(0)
+  /// This payment was marked in default at some point (kept after a late payment).
+  wasDefaulted Boolean       @default(false)
+  status       PaymentStatus @default(NONE)
+  slipHash     String?
+  slipId       String?
+  txHash       String?
+  updatedAt    DateTime      @updatedAt
 
   @@unique([circleId, round, payer])
 }
@@ -385,4 +393,16 @@ model IngestError {
   createdAt  DateTime  @default(now())
 
   @@unique([txHash, logIndex])
+}
+
+/// Mirror of Circle.owed[debtor][creditor] (decisions D1/D5), maintained by the ingester.
+model Debt {
+  id       String @id @default(cuid())
+  circleId String
+  debtor   String
+  creditor String
+  amount   BigInt @default(0)
+
+  @@unique([circleId, debtor, creditor])
+  @@index([debtor])
 }

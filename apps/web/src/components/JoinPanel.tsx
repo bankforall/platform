@@ -6,6 +6,7 @@ import { useIntent } from "@/hooks/useIntent";
 import { useMe } from "@/hooks/session";
 import { SeatPicker } from "./SeatPicker";
 import { Button, Card } from "./ui";
+import { DefaultsBanner, OpenUntilNotice } from "./RuleNotices";
 import { baht, periodLabel } from "@/lib/format";
 
 /** Join an open circle; Fix circles pick a seat first. */
@@ -23,6 +24,13 @@ export function JoinPanel({ circle, inviteCode }: { circle: CircleSummary; invit
     return <Card><p className="text-sm text-ink-muted">วงนี้สมาชิกเต็มแล้ว</p></Card>;
   }
   const kycOk = me?.kycStatus === "APPROVED";
+  const blocked = (me?.outstandingDefaults ?? 0) > 0;
+  const expired = !!circle.openUntil && Date.now() / 1000 >= circle.openUntil;
+  // decisions D2: first-half Fix seats are for trusted members only
+  const reservedSeats =
+    isFix && circle.trustedReputation !== null && (me?.reputation ?? 0) < circle.trustedReputation
+      ? Math.floor(circle.maxMembers / 2)
+      : 0;
 
   const join = async () => {
     if (seat === null) return;
@@ -46,16 +54,20 @@ export function JoinPanel({ circle, inviteCode }: { circle: CircleSummary; invit
           taken={circle.takenSeats}
           value={seat}
           onChange={setSeat}
+          reservedSeats={reservedSeats}
+          trustedReputation={circle.trustedReputation}
         />
       )}
       <Card className="text-sm text-ink-muted">
         เมื่อเข้าร่วม คุณตกลงจ่ายงวดละ {baht(circle.principal)} บาท{isFix ? " (ตามที่นั่ง)" : ""} {periodLabel(circle.period)} จนครบ {circle.maxMembers} งวด
         การผิดนัดจะถูกบันทึกถาวรและลดคะแนนความน่าเชื่อถือ
       </Card>
+      <OpenUntilNotice openUntil={circle.openUntil} />
+      {blocked && <DefaultsBanner count={me!.outstandingDefaults} />}
       {!kycOk && (
         <p className="rounded-xl bg-warn-soft p-3 text-sm text-amber-800">ต้องยืนยันตัวตนผ่านก่อนจึงเข้าร่วมวงได้</p>
       )}
-      <Button block disabled={seat === null || !kycOk} onClick={() => void join()}>
+      <Button block disabled={seat === null || !kycOk || blocked || expired || (seat !== null && seat < reservedSeats)} onClick={() => void join()}>
         {isFix && seat !== null ? `จองที่นั่ง ${seat + 1} และเข้าร่วม` : "เข้าร่วมวง"}
       </Button>
     </div>

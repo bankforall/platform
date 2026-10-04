@@ -10,13 +10,13 @@ contract FactoryTest is BaseTest {
     address host = makeAddr("host");
 
     function test_createCircle_registersHostAndSlot() public {
-        Circle c = create(host, defaultParams(CircleType.Float, 5), 0, 42);
+        Circle c = create(host, defaultParams(CircleType.Float, 5), 0, 242);
         assertTrue(factory.isCircle(address(c)));
         assertEq(factory.activeCircles(host), 1);
         assertEq(c.host(), host);
         assertEq(c.members().length, 1);
         (,,,,, uint32 rep,) = c.memberInfo(host);
-        assertEq(rep, 42);
+        assertEq(rep, 242);
     }
 
     function test_createCircle_rejectsForeignSigner() public {
@@ -29,13 +29,13 @@ contract FactoryTest is BaseTest {
     }
 
     function test_createCircle_rejectsExpiredOrBorrowedAttestation() public {
-        (Attestation memory att, bytes memory sig) = attest(host, address(0), 0);
+        (Attestation memory att, bytes memory sig) = attest(host, address(0), TRUSTED);
         vm.warp(att.deadline + 1);
         vm.prank(host);
         vm.expectRevert(CircleFactory.InvalidAttestation.selector);
         factory.createCircle(defaultParams(CircleType.Float, 5), 0, att, sig);
 
-        (att, sig) = attest(host, address(0), 0);
+        (att, sig) = attest(host, address(0), TRUSTED);
         vm.prank(makeAddr("someone-else"));
         vm.expectRevert(CircleFactory.InvalidAttestation.selector);
         factory.createCircle(defaultParams(CircleType.Float, 5), 0, att, sig);
@@ -43,7 +43,7 @@ contract FactoryTest is BaseTest {
 
     function test_legalCaps() public {
         CircleParams memory p = defaultParams(CircleType.Float, 31);
-        (Attestation memory att, bytes memory sig) = attest(host, address(0), 0);
+        (Attestation memory att, bytes memory sig) = attest(host, address(0), TRUSTED);
         vm.startPrank(host);
         vm.expectRevert(CircleFactory.OverLegalCap.selector);
         factory.createCircle(p, 0, att, sig);
@@ -63,7 +63,7 @@ contract FactoryTest is BaseTest {
     }
 
     function test_cancelFreesHostingSlot() public {
-        Circle c = create(host, defaultParams(CircleType.Float, 5), 0, 0);
+        Circle c = create(host, defaultParams(CircleType.Float, 5), 0, TRUSTED);
         vm.prank(makeAddr("stranger"));
         vm.expectRevert(Circle.NotHost.selector);
         c.cancel();
@@ -76,7 +76,7 @@ contract FactoryTest is BaseTest {
     function test_invalidParams() public {
         CircleParams memory p = defaultParams(CircleType.Float, 5);
         p.fixRateBps = 100; // only valid for Fix
-        (Attestation memory att, bytes memory sig) = attest(host, address(0), 0);
+        (Attestation memory att, bytes memory sig) = attest(host, address(0), TRUSTED);
         vm.startPrank(host);
         vm.expectRevert(CircleFactory.InvalidParams.selector);
         factory.createCircle(p, 0, att, sig);
@@ -98,7 +98,7 @@ contract FactoryTest is BaseTest {
     }
 
     function test_rejectsEther() public {
-        Circle c = create(host, defaultParams(CircleType.Float, 5), 0, 0);
+        Circle c = create(host, defaultParams(CircleType.Float, 5), 0, TRUSTED);
         vm.deal(address(this), 1 ether);
         (bool okCircle,) = address(c).call{value: 1}("");
         (bool okFactory,) = address(factory).call{value: 1}("");
@@ -122,8 +122,8 @@ contract MembershipTest is BaseTest {
     function setUp() public override {
         super.setUp();
         CircleParams memory p = defaultParams(CircleType.Fix, 3);
-        p.minReputation = 10;
-        c = create(host, p, 1, 50);
+        p.minReputation = 150;
+        c = create(host, p, 1, 150);
     }
 
     function test_attestationIsBoundToCircleAndSubject() public {
@@ -139,20 +139,20 @@ contract MembershipTest is BaseTest {
     }
 
     function test_reputationSeatsAndCapacity() public {
-        (Attestation memory att, bytes memory sig) = attest(alice, address(c), 9);
+        (Attestation memory att, bytes memory sig) = attest(alice, address(c), 149);
         vm.prank(alice);
         vm.expectRevert(Circle.ReputationTooLow.selector);
         c.join(0, att, sig);
 
-        (att, sig) = attest(alice, address(c), 10);
+        (att, sig) = attest(alice, address(c), 150);
         vm.prank(alice);
         vm.expectRevert(Circle.SeatTaken.selector);
         c.join(1, att, sig); // host's seat
 
-        joinAs(c, alice, 0, 10);
+        joinAs(c, alice, 0, 150);
         assertEq(c.seatOwner(0), alice);
 
-        (att, sig) = attest(alice, address(c), 10);
+        (att, sig) = attest(alice, address(c), 150);
         vm.prank(alice);
         vm.expectRevert(Circle.AlreadyMember.selector);
         c.join(2, att, sig);
@@ -161,8 +161,8 @@ contract MembershipTest is BaseTest {
         vm.expectRevert(Circle.NotReady.selector);
         c.start();
 
-        joinAs(c, bob, 2, 10);
-        (att, sig) = attest(makeAddr("carol"), address(c), 10);
+        joinAs(c, bob, 2, 150);
+        (att, sig) = attest(makeAddr("carol"), address(c), 150);
         vm.prank(makeAddr("carol"));
         vm.expectRevert(Circle.CircleFull.selector);
         c.join(0, att, sig);

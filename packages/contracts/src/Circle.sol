@@ -92,6 +92,17 @@ contract Circle is Initializable, ERC2771Context {
     mapping(uint8 => uint32) internal _commitCount;
     mapping(uint8 => BestBid) internal _best;
     mapping(uint8 => mapping(address => Payment)) public payments;
+    /// @notice Unpaid amounts from defaults: owed[debtor][creditor]. Set off automatically when the
+    ///         debtor receives the pool (the creditor then pays the debtor that much less).
+    mapping(address => mapping(address => uint128)) public owed;
+    /// @dev Best revealed bid among trusted members (used in the first half of the circle).
+    mapping(uint8 => BestBid) internal _bestTrusted;
+
+    /// @notice Policy snapshot taken from the factory at creation.
+    uint128 internal _maxBid;
+    uint32 public trustedReputation;
+    /// @notice After this, anyone may cancel the circle if it has not started.
+    uint64 public openUntil;
 
     event MemberJoined(address indexed member, uint8 index, uint8 seat, uint32 reputation);
     event CircleStarted(uint64 startedAt);
@@ -123,6 +134,15 @@ contract Circle is Initializable, ERC2771Context {
     );
     event Disputed(uint8 indexed round, address indexed member, bytes32 reasonHash);
     event MemberRotated(address indexed oldMember, address indexed newMember);
+    /// @notice `offset` of what `payer` owes this round's recipient was set off against the recipient's
+    ///         unpaid debt to `payer`; `remaining` is what still has to be transferred.
+    event PaymentOffset(
+        uint8 indexed round,
+        address indexed payer,
+        address indexed recipient,
+        uint128 offset,
+        uint128 remaining
+    );
 
     error WrongStatus();
     error NotHost();
@@ -147,6 +167,7 @@ contract Circle is Initializable, ERC2771Context {
     error NotAttester();
     error SlipMismatch();
     error TooEarly();
+    error NotTrusted();
 
     modifier whenNotPaused() {
         if (factory.paused()) revert Paused();
@@ -171,6 +192,15 @@ contract Circle is Initializable, ERC2771Context {
         factory = CircleFactory(msg.sender);
         host = host_;
         _params = p;
+        trustedReputation = factory.trustedReputation();
+        openUntil = uint64(block.timestamp) + factory.openTtl();
+        uint128 cap = p.circleType == CircleType.Discount ? p.principal - 1 : p.principal;
+        uint128 policyCap = factory.bidCap(p.principal, p.period);
+        _maxBid = p.circleType == CircleType.Fix ? 0 : (policyCap < cap ? policyCap : cap);
+        // the host's first round (มือนายวง) only for a trusted host
+        if (p.hostTakesFirst && p.circleType != CircleType.Fix && hostReputation < trustedReputation) {
+            revert NotTrusted();
+        }
         _addMember(host_, hostSeat, hostReputation);
     }
 
@@ -191,9 +221,9 @@ contract Circle is Initializable, ERC2771Context {
         _addMember(_msgSender(), seat, att.reputation);
     }
 
-    /// @notice Host cancels a circle that has not started.
+    /// @notice Host cancels a circle that has not started; after `openUntil` anyone may.
     function cancel() external inStatus(Status.Open) {
-        if (_msgSender() != host) revert NotHost();
+        if (_msgSender() != host && block.timestamp <= openUntil) revert NotHost();
         status = Status.Cancelled;
         emit CircleCancelled();
         factory.onCircleClosed(host);
@@ -243,13 +273,10 @@ contract Circle is Initializable, ERC2771Context {
         if (amount > maxBid()) revert BidTooHigh();
         c.revealed = true;
 
-        BestBid storage best = _best[r];
         uint32 rep = memberInfo[member].reputation;
-        if (
-            !best.exists || amount > best.amount || (amount == best.amount && rep > best.reputation)
-                || (amount == best.amount && rep == best.reputation && c.order < best.order)
-        ) {
-            _best[r] = BestBid(true, member, amount, rep, c.order);
+        if (_beats(_best[r], amount, rep, c.order)) _best[r] = BestBid(true, member, amount, rep, c.order);
+        if (rep >= trustedReputation && _beats(_bestTrusted[r], amount, rep, c.order)) {
+            _bestTrusted[r] = BestBid(true, member, amount, rep, c.order);
         }
         emit BidRevealed(r, member, amount);
     }
@@ -297,7 +324,11 @@ contract Circle is Initializable, ERC2771Context {
         if (_msgSender() != rounds[r].recipient) revert NotRecipient();
         Payment storage pay = payments[r][payer];
         if (pay.status == PayStatus.Confirmed) revert BadPaymentStatus();
-        if (pay.status == PayStatus.None) pay.amount = amountDue(payer);
+        if (pay.status == PayStatus.Defaulted) {
+            // late payment cures the debt recorded at default (never below zero)
+            uint128 debt = owed[payer][_msgSender()];
+            owed[payer][_msgSender()] = debt > pay.amount ? debt - pay.amount : 0;
+        }
         if (!_settled(pay.status)) rounds[r].settled += 1;
         pay.status = PayStatus.Confirmed;
         emit PaymentConfirmed(r, payer, _msgSender(), pay.amount);
@@ -341,9 +372,9 @@ contract Circle is Initializable, ERC2771Context {
         if (block.timestamp <= _defaultAfter(r)) revert TooEarly();
         Payment storage pay = payments[r][payer];
         if (pay.status != PayStatus.None) revert BadPaymentStatus();
-        pay.amount = amountDue(payer);
         pay.status = PayStatus.Defaulted;
         memberInfo[payer].defaulted = true;
+        owed[payer][rd.recipient] += pay.amount;
         rd.settled += 1;
         emit MemberDefaulted(r, payer, rd.recipient, pay.amount);
     }
@@ -398,6 +429,15 @@ contract Circle is Initializable, ERC2771Context {
             if (_best[r].bidder == oldMember) _best[r].bidder = newMember;
             if (!commits[r][oldMember].revealed) delete commits[r][oldMember];
         }
+        uint256 count = _members.length;
+        for (uint256 i = 0; i < count; i++) {
+            address other = _members[i];
+            if (other == newMember) continue;
+            owed[newMember][other] = owed[oldMember][other];
+            delete owed[oldMember][other];
+            owed[other][newMember] = owed[other][oldMember];
+            delete owed[other][oldMember];
+        }
         emit MemberRotated(oldMember, newMember);
         if (host == oldMember) {
             host = newMember;
@@ -429,10 +469,15 @@ contract Circle is Initializable, ERC2771Context {
         return round < _params.maxMembers;
     }
 
+    /// @notice Largest interest bid (Float) or discount (Discount) per round: the policy cap taken
+    ///         at creation, never more than the principal.
     function maxBid() public view returns (uint128) {
-        if (_params.circleType == CircleType.Discount) return _params.principal - 1;
-        if (_params.circleType == CircleType.Float) return _params.principal;
-        return 0;
+        return _maxBid;
+    }
+
+    /// @notice Rounds 1..⌊N/2⌋ prefer trusted members as recipients.
+    function isEarlyRound(uint8 round) public view returns (bool) {
+        return round <= _params.maxMembers / 2;
     }
 
     /// @notice Per-round payment of a Fix seat: linear ladder from +fixRateBps to -fixRateBps.
@@ -444,13 +489,20 @@ contract Circle is Initializable, ERC2771Context {
         return uint128(uint256(p + adj));
     }
 
-    /// @notice What `payer` owes the recipient of the current (decided) round.
+    /// @notice What `payer` still has to transfer to the recipient of the current (decided) round,
+    ///         after any set-off (fixed when the recipient was selected).
     function amountDue(address payer) public view returns (uint128) {
         Round storage rd = rounds[currentRound];
         if (!rd.decided) revert NotDecided();
-        Member storage m = memberInfo[payer];
-        if (!m.exists) revert NotMember();
+        if (!memberInfo[payer].exists) revert NotMember();
         if (payer == rd.recipient) return 0;
+        return payments[currentRound][payer].amount;
+    }
+
+    /// @notice Contribution owed by `payer` this round before any set-off (the circle rules).
+    function baseDue(address payer) public view returns (uint128) {
+        Round storage rd = rounds[currentRound];
+        Member storage m = memberInfo[payer];
         CircleType t = _params.circleType;
         if (t == CircleType.Fix) return seatPayment(m.seat);
         if (t == CircleType.Float) return m.hasWon ? _params.principal + m.wonBid : _params.principal;
@@ -464,6 +516,8 @@ contract Circle is Initializable, ERC2771Context {
         if (_params.circleType == CircleType.Fix) {
             if (seat >= _params.maxMembers) revert InvalidSeat();
             if (seatOwner[seat] != address(0)) revert SeatTaken();
+            // seats that receive in the first half are for trusted members only
+            if (seat < _params.maxMembers / 2 && reputation < trustedReputation) revert NotTrusted();
             seatOwner[seat] = who;
         } else {
             seat = index;
@@ -490,14 +544,16 @@ contract Circle is Initializable, ERC2771Context {
 
     function _decide(uint8 r) private {
         Round storage rd = rounds[r];
-        BestBid storage best = _best[r];
         address recipient = address(0);
         uint128 winningBid = 0;
-        if (rd.bidding && best.exists) {
+        // early rounds: if any trusted member can still receive, only a trusted member receives
+        bool trustedOnly = rd.bidding && isEarlyRound(r) && _fallbackRecipient(true) != address(0);
+        BestBid storage best = trustedOnly ? _bestTrusted[r] : _best[r];
+        if (rd.bidding && best.exists && _eligible(best.bidder)) {
             recipient = best.bidder;
             winningBid = best.amount;
         } else {
-            recipient = _fallbackRecipient();
+            recipient = trustedOnly ? _fallbackRecipient(true) : _fallbackRecipient(false);
         }
         rd.recipient = recipient;
         rd.winningBid = winningBid;
@@ -507,11 +563,35 @@ contract Circle is Initializable, ERC2771Context {
         m.hasWon = true;
         m.wonBid = winningBid;
         emit RecipientSelected(r, recipient, winningBid, rd.paymentDeadline);
+        _settleDues(r, recipient);
     }
 
-    /// @dev First eligible member in priority order (seat order for Fix, join order otherwise);
-    ///      if every remaining member is in default, the first one who has not received the pool.
-    function _fallbackRecipient() private view returns (address) {
+    /// @dev Fixes every payer's due for round `r` and applies set-off against the recipient's debts.
+    function _settleDues(uint8 r, address recipient) private {
+        uint256 count = _members.length;
+        for (uint256 i = 0; i < count; i++) {
+            address payer = _members[i];
+            if (payer == recipient) continue;
+            uint128 due = baseDue(payer);
+            uint128 debt = owed[recipient][payer];
+            uint128 offset = debt < due ? debt : due;
+            Payment storage pay = payments[r][payer];
+            pay.amount = due - offset;
+            if (offset > 0) {
+                owed[recipient][payer] = debt - offset;
+                emit PaymentOffset(r, payer, recipient, offset, due - offset);
+            }
+            if (due == offset) {
+                pay.status = PayStatus.Confirmed; // nothing left to transfer
+                rounds[r].settled += 1;
+            }
+        }
+    }
+
+    /// @dev First eligible member in priority order (seat order for Fix, join order otherwise).
+    ///      `trustedOnly`: only trusted members, returning 0x0 if there is none.
+    ///      Otherwise, if every remaining member is in default, the first one who has not received.
+    function _fallbackRecipient(bool trustedOnly) private view returns (address) {
         uint8 n = _params.maxMembers;
         bool fix = _params.circleType == CircleType.Fix;
         address firstUnwon = address(0);
@@ -519,20 +599,37 @@ contract Circle is Initializable, ERC2771Context {
             address who = fix ? seatOwner[i] : _members[i];
             Member storage m = memberInfo[who];
             if (m.hasWon) continue;
+            if (trustedOnly) {
+                if (!m.defaulted && m.reputation >= trustedReputation) return who;
+                continue;
+            }
             if (!m.defaulted) return who;
             if (firstUnwon == address(0)) firstUnwon = who;
         }
         return firstUnwon;
     }
 
-    /// @dev After this, unpaid (undeclared) payers can be marked in default.
+    function _beats(BestBid storage best, uint128 amount, uint32 rep, uint32 order)
+        private
+        view
+        returns (bool)
+    {
+        return !best.exists || amount > best.amount || (amount == best.amount && rep > best.reputation)
+            || (amount == best.amount && rep == best.reputation && order < best.order);
+    }
+
+    /// @dev After this, unpaid (undeclared) payers can be marked in default. Extended past an unpause.
     function _defaultAfter(uint8 r) private view returns (uint256) {
-        return uint256(rounds[r].paymentDeadline) + _params.grace;
+        return _max(rounds[r].paymentDeadline, factory.lastUnpausedAt()) + _params.grace;
     }
 
     /// @dev Until this, the recipient may reject a declared payment; afterwards it is accepted.
     function _acceptAfter(uint8 r) private view returns (uint256) {
-        return uint256(rounds[r].paymentDeadline) + 2 * uint256(_params.grace);
+        return _max(rounds[r].paymentDeadline, factory.lastUnpausedAt()) + 2 * uint256(_params.grace);
+    }
+
+    function _max(uint64 a, uint64 b) private pure returns (uint256) {
+        return a > b ? a : b;
     }
 
     function _settled(PayStatus s) private pure returns (bool) {

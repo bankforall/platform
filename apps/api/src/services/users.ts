@@ -1,5 +1,6 @@
 import type { OtpPurpose, User } from "../db.js";
 import { pendingRotationView } from "./rotation.js";
+import { outstandingDefaults } from "./reputation.js";
 import type { MeResponse } from "@bankforall/shared";
 import { CONSENT_VERSION } from "@bankforall/shared";
 import type { Ctx } from "../context.js";
@@ -41,6 +42,7 @@ export async function meView(ctx: Ctx, u: User): Promise<MeResponse> {
     kycReason: lastKyc?.status === "REJECTED" ? (lastKyc.reason ?? null) : null,
     reputation: u.reputation,
     onboarding: onboardingSteps(u),
+    outstandingDefaults: await outstandingDefaults(ctx, u.id, u.walletAddress),
     pendingKeyRotation: pendingRotationView(rotation),
   };
 }

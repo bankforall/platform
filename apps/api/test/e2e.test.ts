@@ -192,6 +192,20 @@ afterAll(async () => {
   if (ctx) await closeCtx(ctx);
 });
 
+const circleBody = () => ({
+  name: `วงทดสอบ ${run}`,
+  type: CircleType.Float,
+  principal: "100000",
+  maxMembers: 3,
+  hostTakesFirst: true,
+  period: 30 * DAY,
+  bidWindow: DAY,
+  revealWindow: DAY,
+  paymentWindow: 3 * DAY,
+  grace: DAY,
+  private: true,
+});
+
 describe("full Float circle through the API", () => {
   it("onboards three members and an admin approves KYC", async () => {
     for (const c of [host, alice, bob]) await c.onboard(phone());
@@ -204,7 +218,8 @@ describe("full Float circle through the API", () => {
     for (const c of [host, alice, bob]) {
       const item = pending.find((p) => p.displayName === `${c.name}-${run}`)!;
       expect(item.nationalIdLast4).toMatch(/^\d{4}$/);
-      const reputation = c === alice ? 300 : 100; // alice wins ties
+      // the host takes round 1, so they must be trusted (decisions D2); alice wins ties
+      const reputation = c === alice ? 300 : c === host ? 200 : 100;
       await admin.req("POST", `/api/admin/kyc/${item.id}/decision`, { approve: true, reputation });
     }
     const me = await host.req<{ onboarding: string[]; kycStatus: string }>("GET", "/api/me");
@@ -219,25 +234,16 @@ describe("full Float circle through the API", () => {
   });
 
   it("host creates a private Float circle", async () => {
-    const prepared = await host.req<PreparedIntent>("POST", "/api/circles", {
-      name: `วงทดสอบ ${run}`,
-      type: CircleType.Float,
-      principal: "100000",
-      maxMembers: 3,
-      hostTakesFirst: true,
-      period: 30 * DAY,
-      bidWindow: DAY,
-      revealWindow: DAY,
-      paymentWindow: 3 * DAY,
-      grace: DAY,
-      private: true,
-    });
+    const prepared = await host.req<PreparedIntent>("POST", "/api/circles", circleBody());
     expect(prepared.summary).toContain("1,000.00");
     const result = await host.sign(prepared);
     circle = { id: result.circleId! } as CircleDetail;
     await detail();
     expect(circle.status).toBe("OPEN");
     expect(circle.address).toMatch(/^0x/);
+    // 15%/year on 1,000 baht for a 30-day period (decisions D3)
+    expect(circle.maxBid).toBe("1232");
+    expect(circle.openUntil).toBeGreaterThan(Date.now() / 1000);
     expect(circle.members).toHaveLength(1);
     expect(circle.inviteCode).toHaveLength(8);
   });
@@ -305,8 +311,8 @@ describe("full Float circle through the API", () => {
     expect(round(2).bidding).toBe(true);
 
     const bids: [Client, bigint][] = [
-      [alice, 5_000n],
-      [bob, 3_000n],
+      [alice, 1_000n],
+      [bob, 600n],
     ];
     for (const [c, amount] of bids) {
       const salt = toHex(randomBytes(32));
@@ -328,7 +334,7 @@ describe("full Float circle through the API", () => {
     await detail();
     expect(round(2).revealed).toHaveLength(2);
     expect(round(2).recipient).toBe(alice.account.address.toLowerCase());
-    expect(round(2).winningBid).toBe("5000");
+    expect(round(2).winningBid).toBe("1000");
     // Float: host (won round 1 with bid 0) pays principal + 0; bob has not won → principal
     expect(Object.fromEntries(round(2).payments.map((p) => [p.payerName.split("-")[0], p.amount]))).toEqual({
       host: "100000",
@@ -363,8 +369,11 @@ describe("full Float circle through the API", () => {
     expect(circle.members.find((m) => m.address === bob.account.address.toLowerCase())!.defaulted).toBe(true);
     expect(circle.members.find((m) => m.address === host.account.address.toLowerCase())!.defaulted).toBe(false);
 
-    const bobMe = await bob.req<{ reputation: number }>("GET", "/api/me");
+    const bobMe = await bob.req<{ reputation: number; outstandingDefaults: number }>("GET", "/api/me");
     expect(bobMe.reputation).toBe(100 + 2 - 40); // one confirmed payment, one default
+    expect(bobMe.outstandingDefaults).toBe(1);
+    // a defaulter cannot create or join other circles until the debt is settled (decisions D5)
+    await expect(bob.req("POST", "/api/circles", { ...circleBody(), hostTakesFirst: false })).rejects.toThrow(/OUTSTANDING_DEFAULT/);
     const notes = await alice.req<{ kind: string }[]>("GET", "/api/me/notifications");
     expect(notes.map((n) => n.kind)).toContain("you_receive");
   });
@@ -409,9 +418,14 @@ describe("full Float circle through the API", () => {
   });
 
   it("round 3: the last member receives with the new key; the circle completes", async () => {
-    // Float dues in the final round: host principal + 0, alice principal + her 5,000 bid
-    const dues = Object.fromEntries(round(3).payments.map((p) => [p.payerName.split("-")[0], p.amount]));
-    expect(dues).toEqual({ host: "100000", alice: "105000" });
+    // Float dues in the final round: host principal + 0, alice principal + her 1,000 bid — minus the
+    // 100,000 bob owes her from round 2, set off automatically (decisions D1)
+    const pay = (field: "amount" | "offset") =>
+      Object.fromEntries(round(3).payments.map((p) => [p.payerName.split("-")[0], p[field]]));
+    expect(pay("amount")).toEqual({ host: "100000", alice: "1000" });
+    expect(pay("offset")).toEqual({ host: "0", alice: "100000" });
+    // the set-off settled bob's only debt, so he may use the platform again
+    expect((await bob.req<{ outstandingDefaults: number }>("GET", "/api/me")).outstandingDefaults).toBe(0);
 
     for (const c of [host, alice]) {
       await c.sign(await c.multipart<PreparedIntent>(`/api/circles/${circle.id}/payments`, {}, { slip: png(`slip-${c.name}-3`) }));

@@ -38,6 +38,8 @@ export const meResponse = z.object({
   reputation: z.number().int(),
   /** Steps still required before the user can create or join a circle, in order. */
   onboarding: z.array(z.enum(["phone", "promptpay", "consent", "wallet", "kyc"])),
+  /** Unpaid defaults; while > 0 the user cannot create or join circles (decisions D5). */
+  outstandingDefaults: z.number().int(),
   /** Key recovery in progress (see POST /api/me/key-rotation). */
   pendingKeyRotation: z
     .object({
@@ -182,6 +184,12 @@ export const circleSummary = z.object({
   host: z.object({ id: z.string().nullable(), displayName: z.string() }),
   /** Seats already taken (Fix circles). */
   takenSeats: z.array(z.number().int()),
+  /** Largest bid/discount per round (interest cap, decisions D3); null for Fix or not yet known. */
+  maxBid: amount.nullable(),
+  /** Reputation needed to receive in rounds 1..⌊N/2⌋ and for Fix first-half seats (decisions D2). */
+  trustedReputation: z.number().int().nullable(),
+  /** Open circles may be cancelled by anyone after this time (unix seconds, decisions D4). */
+  openUntil: z.number().int().nullable(),
   /** Present for members only. */
   me: z
     .object({
@@ -208,12 +216,16 @@ export const memberView = z.object({
   wonRound: z.number().int().nullable(),
   wonBid: amount,
   defaulted: z.boolean(),
+  /** reputation ≥ circle.trustedReputation */
+  trusted: z.boolean(),
 });
 
 export const paymentView = z.object({
   payer: address,
   payerName: z.string(),
   amount: amount.nullable(),
+  /** Part of the due set off against the recipient's unpaid debt to this payer (decisions D1). */
+  offset: amount,
   status: PaymentStatus,
   slipId: z.string().nullable(),
   slipVerify: z.enum(["PENDING", "VERIFIED", "FAILED", "SKIPPED"]).nullable(),

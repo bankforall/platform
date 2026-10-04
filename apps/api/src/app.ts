@@ -62,6 +62,8 @@ export async function buildApp(ctx: Ctx, opts: { logger?: boolean } = {}): Promi
             ? "บัญชีกำลังเปลี่ยนกุญแจ กรุณารอให้เสร็จก่อน"
             : err.code === "CIRCLE_NOT_OPEN"
               ? "วงนี้ไม่เปิดรับสมาชิกแล้ว"
+              : err.code === "OUTSTANDING_DEFAULT"
+                ? "มีหนี้ผิดนัดค้างอยู่ ชำระย้อนหลังให้ผู้รับยืนยันก่อน จึงจะสร้างหรือเข้าวงใหม่ได้"
               : "ไม่สามารถยืนยันรายการนี้ได้";
       return reply.status(403).send({ error: { code: err.code, message } });
     }

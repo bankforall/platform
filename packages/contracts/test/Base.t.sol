@@ -10,6 +10,8 @@ import {Attestation, CircleParams, CircleType} from "../src/CircleTypes.sol";
 
 abstract contract BaseTest is Test {
     uint64 internal constant DAY = 1 days;
+    /// Reputation at or above the factory's trustedReputation (110).
+    uint32 internal constant TRUSTED = 200;
 
     CircleFactory internal factory;
     ERC2771Forwarder internal forwarder;
@@ -21,6 +23,9 @@ abstract contract BaseTest is Test {
         (attester, attesterKey) = makeAddrAndKey("attester");
         forwarder = new ERC2771Forwarder("BankForAllForwarder");
         factory = new CircleFactory(admin, attester, address(forwarder));
+        // general tests use a loose interest cap; Decisions.t.sol tests the real default (15%/year)
+        vm.prank(admin);
+        factory.setPolicy(60_000, 110, 30 days);
         vm.warp(1_700_000_000);
     }
 
@@ -75,9 +80,9 @@ abstract contract BaseTest is Test {
         for (uint256 i = 0; i < m.length; i++) {
             m[i] = makeAddr(string.concat("member", vm.toString(i)));
         }
-        c = create(m[0], p, 0, 0);
+        c = create(m[0], p, 0, TRUSTED);
         for (uint8 i = 1; i < m.length; i++) {
-            joinAs(c, m[i], i, 0);
+            joinAs(c, m[i], i, TRUSTED);
         }
         vm.prank(m[0]);
         c.start();

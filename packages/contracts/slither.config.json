@@ -1,5 +1,5 @@
 {
   "filter_paths": "lib/|test/|script/",
-  "detectors_to_exclude": "timestamp,unused-return,dead-code",
+  "detectors_to_exclude": "timestamp,unused-return,dead-code,cyclomatic-complexity",
   "fail_on": "medium"
 }

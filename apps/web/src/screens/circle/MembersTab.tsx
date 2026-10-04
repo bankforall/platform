@@ -5,6 +5,7 @@ import { useIntent } from "@/hooks/useIntent";
 import { useToast } from "@/components/overlay";
 import { Avatar, Button, Card, Chip, SectionTitle } from "@/components/ui";
 import { sameAddress } from "@/lib/format";
+import { OpenUntilNotice, TrustedBadge } from "@/components/RuleNotices";
 import type { TabProps } from "./CircleDetail";
 
 function HostPanel({ circle }: TabProps) {
@@ -47,6 +48,7 @@ function HostPanel({ circle }: TabProps) {
       <p className="text-sm text-ink-muted">
         {full ? "สมาชิกครบแล้ว เริ่มวงได้เลย งวดแรกจะเปิดทันที" : `รอสมาชิกอีก ${circle.maxMembers - circle.memberCount} คน จึงจะเริ่มวงได้`}
       </p>
+      <OpenUntilNotice openUntil={circle.openUntil} />
       <div className="flex gap-2">
         <Button
           className="flex-1"
@@ -94,10 +96,11 @@ export default function MembersTab(props: TabProps) {
     <div>
       {circle.me?.isHost && circle.status === "OPEN" && <HostPanel {...props} />}
       {circle.status === "OPEN" && !circle.me?.isHost && (
-        <Card>
+        <Card className="space-y-2">
           <p className="text-sm text-ink-muted">
             รอสมาชิกครบ {circle.maxMembers} คน ({circle.memberCount}/{circle.maxMembers}) แล้วนายวงจะเริ่มวง
           </p>
+          <OpenUntilNotice openUntil={circle.openUntil} />
         </Card>
       )}
 
@@ -123,7 +126,10 @@ export default function MembersTab(props: TabProps) {
                 {sameAddress(m.address, myAddress) && " (คุณ)"}
                 {m.index === 0 && <span className="ml-1 text-xs text-primary">· นายวง</span>}
               </p>
-              <p className="text-xs text-ink-muted">คะแนนความน่าเชื่อถือ {m.reputation}</p>
+              <p className="text-xs text-ink-muted">
+                คะแนนความน่าเชื่อถือ {m.reputation}
+                {m.trusted && <TrustedBadge />}
+              </p>
             </div>
             {m.defaulted ? (
               <Chip tone="danger">ผิดนัด</Chip>

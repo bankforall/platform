@@ -30,6 +30,16 @@ contract CircleFactory is AccessControl, Pausable, EIP712, ERC2771Context {
     /// @notice Cap on principal × maxMembers, in satang (300,000 baht).
     uint256 public maxPoolValue = 300_000 * 100;
     uint8 public maxActiveCirclesPerHost = 3;
+
+    /// @notice Annualised cap on interest bids, discounts and Fix rate ladders (15%/year until a legal
+    ///         opinion says otherwise). Applies to circles created after a change.
+    uint16 public maxAnnualRateBps = 1_500;
+    /// @notice Reputation needed to receive in the first half of a circle or to take the host's first round.
+    uint32 public trustedReputation = 110;
+    /// @notice A circle that has not started this long after creation may be cancelled by anyone.
+    uint64 public openTtl = 30 days;
+    /// @notice Last unpause: payment deadlines are extended past it so nobody defaults because of a pause.
+    uint64 public lastUnpausedAt;
     uint16 public constant MAX_FIX_RATE_BPS = 5_000;
 
     address public immutable implementation;
@@ -39,6 +49,7 @@ contract CircleFactory is AccessControl, Pausable, EIP712, ERC2771Context {
     event CircleCreated(address indexed circle, address indexed host, CircleParams params);
     event CapsUpdated(uint8 maxMembersCap, uint256 maxPoolValue, uint8 maxActiveCirclesPerHost);
     event HostRotated(address indexed circle, address indexed oldHost, address indexed newHost);
+    event PolicyUpdated(uint16 maxAnnualRateBps, uint32 trustedReputation, uint64 openTtl);
 
     error InvalidAttestation();
     error InvalidParams();
@@ -149,11 +160,28 @@ contract CircleFactory is AccessControl, Pausable, EIP712, ERC2771Context {
         emit CapsUpdated(members, poolValue, activePerHost);
     }
 
+    function setPolicy(uint16 annualRateBps, uint32 trustedRep, uint64 ttl)
+        external
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        if (ttl == 0) revert InvalidParams();
+        maxAnnualRateBps = annualRateBps;
+        trustedReputation = trustedRep;
+        openTtl = ttl;
+        emit PolicyUpdated(annualRateBps, trustedRep, ttl);
+    }
+
+    /// @notice Largest interest bid / discount per round allowed for these parameters.
+    function bidCap(uint128 principal, uint64 period) public view returns (uint128) {
+        return uint128((uint256(principal) * maxAnnualRateBps * period) / (365 days * 10_000));
+    }
+
     function pause() external onlyRole(DEFAULT_ADMIN_ROLE) {
         _pause();
     }
 
     function unpause() external onlyRole(DEFAULT_ADMIN_ROLE) {
+        lastUnpausedAt = uint64(block.timestamp);
         _unpause();
     }
 
@@ -168,8 +196,14 @@ contract CircleFactory is AccessControl, Pausable, EIP712, ERC2771Context {
         }
         if (p.circleType == CircleType.Fix) {
             if (p.fixRateBps > MAX_FIX_RATE_BPS || hostSeat >= p.maxMembers) revert InvalidParams();
-        } else if (p.fixRateBps != 0) {
-            revert InvalidParams();
+            // the seat ladder is interest too: per-round rate within the annualised cap
+            if (uint256(p.fixRateBps) * 365 days > uint256(maxAnnualRateBps) * p.period) {
+                revert OverLegalCap();
+            }
+        } else {
+            if (p.fixRateBps != 0) revert InvalidParams();
+            // a bidding circle needs room for at least a 1-satang bid
+            if (bidCap(p.principal, p.period) == 0) revert InvalidParams();
         }
         if (p.maxMembers > maxMembersCap) revert OverLegalCap();
         if (uint256(p.principal) * p.maxMembers > maxPoolValue) revert OverLegalCap();

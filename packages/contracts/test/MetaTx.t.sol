@@ -61,7 +61,7 @@ contract MetaTxTest is BaseTest {
         (address host, uint256 hostKey) = makeAddrAndKey("host");
         (address alice, uint256 aliceKey) = makeAddrAndKey("alice");
 
-        (Attestation memory att, bytes memory sig) = attest(host, address(0), 7);
+        (Attestation memory att, bytes memory sig) = attest(host, address(0), TRUSTED);
         vm.recordLogs();
         _forward(
             hostKey,
@@ -73,7 +73,7 @@ contract MetaTxTest is BaseTest {
         assertEq(c.host(), host, "host is the signer, not the relayer");
         assertEq(factory.activeCircles(relayer), 0);
 
-        (att, sig) = attest(alice, address(c), 7);
+        (att, sig) = attest(alice, address(c), TRUSTED);
         _forward(aliceKey, address(c), abi.encodeCall(Circle.join, (0, att, sig)));
         (bool exists,,,,,,) = c.memberInfo(alice);
         assertTrue(exists);
@@ -85,7 +85,7 @@ contract MetaTxTest is BaseTest {
     function test_forgedSignatureIsRejected() public {
         (, uint256 mallory) = makeAddrAndKey("mallory");
         (address host,) = makeAddrAndKey("host");
-        Circle c = create(host, defaultParams(CircleType.Float, 2), 0, 0);
+        Circle c = create(host, defaultParams(CircleType.Float, 2), 0, TRUSTED);
 
         ERC2771Forwarder.ForwardRequestData memory req = ERC2771Forwarder.ForwardRequestData({
             from: host, // claims to be the host…

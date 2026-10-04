@@ -11,6 +11,14 @@ const PAYMENT_RANK: Record<PaymentStatus, number> = { NONE: 0, DECLARED: 1, ATTE
 
 type Decoded = ReturnType<typeof parseEventLogs<typeof abi>>[number];
 
+/** Mirrors Circle.owed: adds `delta` (may be negative) and never goes below zero. */
+async function adjustDebt(tx: Prisma.TransactionClient, circleId: string, debtor: string, creditor: string, delta: bigint) {
+  const key = { circleId_debtor_creditor: { circleId, debtor, creditor } };
+  const current = (await tx.debt.findUnique({ where: key }))?.amount ?? 0n;
+  const next = current + delta > 0n ? current + delta : 0n;
+  await tx.debt.upsert({ where: key, create: { circleId, debtor, creditor, amount: next }, update: { amount: next } });
+}
+
 /**
  * Applies contract events to the database. Idempotent: every log is recorded once in ChainEvent
  * (unique txHash+logIndex) in the same transaction as its effects, so the receipt path (right
@@ -107,7 +115,23 @@ async function apply(
         ctx.log.warn({ circle: log.args.circle, tx: log.transactionHash }, "CircleCreated without a draft — ignored");
         return;
       }
-      await tx.circle.update({ where: { id: circle.id }, data: { address: lower(log.args.circle), status: "OPEN" } });
+      // policy snapshot taken by the contract at creation (decisions D2–D4)
+      const contract = { address: log.args.circle, abi: circleAbi } as const;
+      const [maxBid, trustedReputation, openUntil] = await Promise.all([
+        ctx.chain.publicClient.readContract({ ...contract, functionName: "maxBid" }),
+        ctx.chain.publicClient.readContract({ ...contract, functionName: "trustedReputation" }),
+        ctx.chain.publicClient.readContract({ ...contract, functionName: "openUntil" }),
+      ]);
+      await tx.circle.update({
+        where: { id: circle.id },
+        data: {
+          address: lower(log.args.circle),
+          status: "OPEN",
+          maxBid,
+          trustedReputation,
+          openUntil: new Date(Number(openUntil) * 1000),
+        },
+      });
       return;
     }
     case "MemberJoined": {
@@ -280,6 +304,35 @@ async function apply(
       }
       return;
     }
+    case "PaymentOffset": {
+      // set-off against the recipient's unpaid debt to this payer (decisions D1)
+      const r = log.args.round;
+      const payer = lower(log.args.payer);
+      const remaining = log.args.remaining;
+      await adjustDebt(tx, circleId!, lower(log.args.recipient), payer, -log.args.offset);
+      const data = {
+        amount: remaining,
+        offset: log.args.offset,
+        ...(remaining === 0n ? { status: "CONFIRMED" as const, txHash: log.transactionHash! } : {}),
+      };
+      await tx.payment.upsert({
+        where: { circleId_round_payer: { circleId: circleId!, round: r, payer } },
+        create: { circleId: circleId!, round: r, payer, ...data },
+        update: data,
+      });
+      later.push(() =>
+        notifyAddress(ctx, payer, {
+          kind: "payment_offset",
+          title: `หักกลบหนี้รอบที่ ${r} แล้ว`,
+          body:
+            remaining === 0n
+              ? `ไม่ต้องโอน — หักกลบกับเงินที่ผู้รับค้างคุณ ${formatBaht(log.args.offset)} บาทครบแล้ว`
+              : `หักกลบ ${formatBaht(log.args.offset)} บาท โอนเพิ่มอีก ${formatBaht(remaining)} บาท`,
+          circleId: circleId!,
+        }),
+      );
+      return;
+    }
     case "PaymentRejected": {
       // the recipient says the money never arrived: back to unpaid (the only allowed downgrade)
       const r = log.args.round;
@@ -315,7 +368,14 @@ async function apply(
       const key = { circleId_round_payer: { circleId: circleId!, round: r, payer } };
       const current = await tx.payment.findUnique({ where: key });
       if (current && PAYMENT_RANK[current.status] >= PAYMENT_RANK[status]) return;
+      if (log.eventName === "MemberDefaulted") {
+        await adjustDebt(tx, circleId!, payer, lower(log.args.recipient), log.args.amount);
+      }
+      if (log.eventName === "PaymentConfirmed" && current?.status === "DEFAULTED") {
+        await adjustDebt(tx, circleId!, payer, lower(log.args.recipient), -log.args.amount);
+      }
       const data: Prisma.PaymentUncheckedUpdateInput = { status, txHash: log.transactionHash! };
+      if (log.eventName === "MemberDefaulted") data.wasDefaulted = true;
       if ("amount" in log.args) data.amount = log.args.amount;
       if (log.eventName === "PaymentDeclared") {
         data.slipHash = log.args.slipHash;
@@ -414,6 +474,8 @@ async function apply(
         where: { circleId: circleId!, address: oldA },
         data: { address: newA, ...(user ? { userId: user.id } : {}) },
       });
+      await tx.debt.updateMany({ where: { circleId: circleId!, debtor: oldA }, data: { debtor: newA } });
+      await tx.debt.updateMany({ where: { circleId: circleId!, creditor: oldA }, data: { creditor: newA } });
       const circle = await tx.circle.findUniqueOrThrow({ where: { id: circleId! } });
       if (circle.currentRound > 0) {
         await tx.payment.updateMany({

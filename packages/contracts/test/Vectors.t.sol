@@ -32,6 +32,14 @@ contract VectorsTest is BaseTest {
         p.hostTakesFirst = vm.parseJsonBool(json, string.concat(v, ".hostTakesFirst"));
         p.fixRateBps = uint16(vm.parseJsonUint(json, string.concat(v, ".fixRateBps")));
         p.principal = uint128(vm.parseJsonUint(json, string.concat(v, ".principal")));
+        // the vector's policy: annualised interest cap and trusted-reputation threshold
+        vm.prank(admin);
+        factory.setPolicy(
+            uint16(vm.parseJsonUint(json, string.concat(v, ".annualRateBps"))),
+            uint32(vm.parseJsonUint(json, string.concat(v, ".trustedReputation"))),
+            30 days
+        );
+        p.period = uint64(vm.parseJsonUint(json, string.concat(v, ".periodDays"))) * DAY;
         uint256[] memory seats = vm.parseJsonUintArray(json, string.concat(v, ".seats"));
         uint256[] memory reps = vm.parseJsonUintArray(json, string.concat(v, ".reputations"));
 

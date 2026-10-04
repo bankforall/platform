@@ -12,6 +12,15 @@ import type { TabProps } from "./CircleDetail";
 
 const MAX_SLIP = 8 * 1024 * 1024;
 
+type Payment = Round["payments"][number];
+
+/** Set-off against the recipient's unpaid debt to the payer (decisions D1); `amount` is what is left to transfer. */
+function setOff(p: Payment | undefined): { offset: bigint; remaining: bigint | null; full: boolean } {
+  const offset = p ? BigInt(p.offset) : 0n;
+  const remaining = p?.amount != null ? BigInt(p.amount) : null;
+  return { offset, remaining, full: offset > 0n && remaining === 0n };
+}
+
 function PayNow({ circle, round }: TabProps & { round: Round }) {
   const { run } = useIntent();
   const qr = useQuery({ queryKey: qk.promptPay(circle.id), queryFn: () => api.promptPay(circle.id) });
@@ -138,6 +147,11 @@ function RecipientView({ circle, round }: TabProps & { round: Round }) {
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-ink">{p.payerName}</p>
                   <p className="text-xs text-ink-muted">{p.amount ? `${baht(p.amount)} บาท` : "–"}</p>
+                  {BigInt(p.offset) > 0n && (
+                    <p className="text-xs text-primary">
+                      {p.amount === "0" ? "ไม่ต้องโอน — หักกลบครบแล้ว ✓ " : ""}หักกลบหนี้ที่คุณค้าง {baht(p.offset)} บาท
+                    </p>
+                  )}
                 </div>
                 <Chip tone={st.tone}>{st.text}</Chip>
               </div>
@@ -199,16 +213,32 @@ export default function PaymentTab(props: TabProps) {
   const status = mine?.status ?? "NONE";
   const st = paymentLabel[status];
   const link = txUrl(config?.explorerUrl, mine?.txHash);
+  const recipientName = round.recipientName ?? nameOf(circle, round.recipient);
+  const so = setOff(mine);
 
   return (
     <div className="space-y-4">
       <Card>
         <KeyValue label="งวดที่">{round.number}</KeyValue>
-        <KeyValue label="ผู้รับ">{round.recipientName ?? nameOf(circle, round.recipient)}</KeyValue>
+        <KeyValue label="ผู้รับ">{recipientName}</KeyValue>
         <KeyValue label="ยอดของคุณ">{mine?.amount ? `${baht(mine.amount)} บาท` : "–"}</KeyValue>
         <KeyValue label="สถานะ">
           <Chip tone={st.tone}>{st.text}</Chip>
         </KeyValue>
+        {so.offset > 0n && (
+          <p className="mt-2 rounded-xl bg-primary-soft p-3 text-sm text-primary" data-testid="set-off">
+            {so.full ? (
+              <>
+                ไม่ต้องโอน — หักกลบครบแล้ว ✓<br />
+                <span className="text-xs">หักกลบหนี้ที่ {recipientName} ค้างคุณ {baht(so.offset)} บาท</span>
+              </>
+            ) : (
+              <>
+                หักกลบหนี้ที่ {recipientName} ค้างคุณ {baht(so.offset)} บาท — โอนเพิ่ม {baht(so.remaining)} บาท
+              </>
+            )}
+          </p>
+        )}
         {round.defaultAfter && status === "NONE" && (
           <p className="mt-2 text-xs text-ink-muted">
             แจ้งโอนพร้อมสลิปได้ถึง {dateTime(round.defaultAfter)} หากยังไม่แจ้งโอนหลังเวลานี้จะถูกบันทึกว่าผิดนัด
@@ -216,7 +246,7 @@ export default function PaymentTab(props: TabProps) {
         )}
       </Card>
 
-      {(status === "NONE" || status === "DEFAULTED") && (
+      {(status === "NONE" || status === "DEFAULTED") && !so.full && (
         <>
           {status === "DEFAULTED" && (
             <p className="rounded-xl bg-danger-soft p-3 text-sm text-danger" role="alert">
@@ -242,7 +272,7 @@ export default function PaymentTab(props: TabProps) {
           )}
         </Card>
       )}
-      {isSettled(status) && (
+      {isSettled(status) && !so.full && (
         <Card className="text-center">
           <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-success-soft text-2xl text-success" aria-hidden>
             ✓

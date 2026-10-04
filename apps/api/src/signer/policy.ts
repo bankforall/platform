@@ -3,6 +3,7 @@ import { encodeFunctionData, getAddress, verifyMessage, zeroAddress, type Addres
 import { chainNow, need, type Chain } from "../chain/clients.js";
 import type { Config } from "../config.js";
 import type { PrismaClient } from "../db.js";
+import { outstandingDefaults } from "../services/reputation.js";
 
 /** Everything the attester-key holder needs: no storage, no encryption keys, no session secrets. */
 export interface SignerCtx {
@@ -45,6 +46,10 @@ export async function issueAttestation(ctx: SignerCtx, subject: Address, circle:
     where: { userId: user.id, status: { in: ["PENDING", "APPROVED"] } },
   });
   if (pendingRotation) throw new PolicyError("ROTATION_PENDING", "account key is being replaced");
+  // decisions D5: no new circles while a default is unpaid
+  if ((await outstandingDefaults(ctx, user.id, user.walletAddress)) > 0) {
+    throw new PolicyError("OUTSTANDING_DEFAULT", "user has unpaid defaults");
+  }
   if (circle !== zeroAddress) {
     const c = await ctx.db.circle.findUnique({ where: { address: circle.toLowerCase() } });
     if (!c || c.status !== "OPEN") throw new PolicyError("CIRCLE_NOT_OPEN", "circle is not open");

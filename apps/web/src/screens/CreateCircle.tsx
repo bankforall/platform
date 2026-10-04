@@ -3,6 +3,7 @@ import { useNavigate } from "react-router";
 import {
   CircleType,
   LEGAL_CAPS,
+  bidCap,
   createCircleSchema,
   needsBidding,
   simulateCircle,
@@ -14,7 +15,8 @@ import { useMe } from "@/hooks/session";
 import { Header, Screen } from "@/components/layout";
 import { SeatPicker } from "@/components/SeatPicker";
 import { Button, Card, Field, cx } from "@/components/ui";
-import { baht, duration, parseBaht } from "@/lib/format";
+import { DefaultsBanner, annualCapLabel } from "@/components/RuleNotices";
+import { baht, duration, parseBaht, percent, periodLabel } from "@/lib/format";
 
 const H = 3600;
 const D = 86400;
@@ -27,6 +29,11 @@ const PERIODS = [
   { id: "monthly", label: "รายเดือน", period: 30 * D, bid: 2 * D, reveal: D, pay: 5 * D, grace: D },
 ] as const;
 type PeriodId = (typeof PERIODS)[number]["id"];
+
+/** Largest Fix ladder rate (bps per round) within the annualised cap; same rule as `fixRateAllowed`. */
+function maxFixRateBps(period: number): number {
+  return Math.floor((LEGAL_CAPS.maxAnnualRateBps * period) / (365 * D));
+}
 interface Windows {
   period: number;
   bid: number;
@@ -88,18 +95,25 @@ export default function CreateCircle() {
   const [type, setType] = useState<CircleType>(CircleType.Float);
   const [principalText, setPrincipalText] = useState("1000");
   const [maxMembers, setMaxMembers] = useState(5);
-  const [fixRate, setFixRate] = useState(10);
-  const [hostTakesFirst, setHostTakesFirst] = useState(true);
-  const [hostSeat, setHostSeat] = useState<number | null>(0);
+  const [fixRate, setFixRate] = useState(1);
+  // decisions D2: only trusted hosts may take round 1 / a first-half Fix seat
+  const trusted = me.reputation >= LEGAL_CAPS.trustedReputation;
+  const reservedSeats = trusted ? 0 : Math.floor(maxMembers / 2);
+  const [hostTakesFirst, setHostTakesFirst] = useState(trusted);
+  const [hostSeat, setHostSeat] = useState<number | null>(trusted ? 0 : null);
   const [periodId, setPeriodId] = useState<PeriodId>("monthly");
   const [windows, setWindows] = useState<Windows>(() => ({ ...PERIODS[3] }));
   const [isPrivate, setIsPrivate] = useState(true);
   const [minReputation, setMinReputation] = useState(0);
-  const [exampleBidText, setExampleBidText] = useState("50");
+  const [exampleBidText, setExampleBidText] = useState("10");
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   const principal = parseBaht(principalText);
   const isFix = type === CircleType.Fix;
+  const blocked = me.outstandingDefaults > 0;
+  // decisions D3: annualised cap on bids/discounts and on the Fix ladder
+  const cap = principal === null ? null : bidCap(principal, windows.period, LEGAL_CAPS.maxAnnualRateBps);
+  const fixMaxBps = maxFixRateBps(windows.period);
 
   const body: CreateCircleRequest | null =
     principal === null
@@ -110,7 +124,7 @@ export default function CreateCircle() {
           type,
           principal: principal.toString(),
           maxMembers,
-          hostTakesFirst: isFix ? false : hostTakesFirst,
+          hostTakesFirst: isFix ? false : hostTakesFirst && trusted,
           fixRateBps: isFix ? Math.round(fixRate * 100) : 0,
           minReputation,
           period: windows.period,
@@ -129,13 +143,22 @@ export default function CreateCircle() {
     const r = createCircleSchema.safeParse(body);
     if (!r.success) for (const i of r.error.issues) out[String(i.path[0] ?? "form")] ??= i.message;
     if (isFix && hostSeat === null) out.hostSeat = "เลือกที่นั่งของคุณ";
+    if (isFix && hostSeat !== null && hostSeat < reservedSeats) out.hostSeat = "ที่นั่งครึ่งแรกสงวนไว้สำหรับสมาชิกที่น่าเชื่อถือ";
     return out;
-  }, [body, principal, isFix, hostSeat]);
+  }, [body, principal, isFix, hostSeat, reservedSeats]);
 
   const rules: CircleRules | null = principal
-    ? { type, principal, maxMembers, hostTakesFirst: isFix ? false : hostTakesFirst, fixRateBps: isFix ? Math.round(fixRate * 100) : 0 }
+    ? {
+        type,
+        principal,
+        maxMembers,
+        hostTakesFirst: isFix ? false : hostTakesFirst && trusted,
+        fixRateBps: isFix ? Math.round(fixRate * 100) : 0,
+        maxBid: isFix || cap === null ? undefined : cap,
+      }
     : null;
   const exampleBid = parseBaht(exampleBidText) ?? 0n;
+  const exampleBidError = !isFix && cap !== null && exampleBid > cap ? `เกินเพดาน — เสนอได้สูงสุด ${baht(cap)} บาท/งวด` : undefined;
   const preview = useMemo(() => {
     if (!rules || maxMembers < 2 || maxMembers > LEGAL_CAPS.maxMembers) return null;
     const members = Array.from({ length: maxMembers }, (_, i) => i);
@@ -146,9 +169,9 @@ export default function CreateCircle() {
     } catch {
       return null;
     }
-  }, [rules?.type, rules?.principal, rules?.maxMembers, rules?.hostTakesFirst, rules?.fixRateBps, exampleBid, hostSeat, isFix]);
+  }, [rules?.type, rules?.principal, rules?.maxMembers, rules?.hostTakesFirst, rules?.fixRateBps, rules?.maxBid, exampleBid, hostSeat, isFix]);
 
-  const canSubmit = Object.keys(errors).length === 0 && !!body && me.kycStatus === "APPROVED";
+  const canSubmit = Object.keys(errors).length === 0 && !!body && me.kycStatus === "APPROVED" && !blocked;
 
   const submit = async () => {
     if (!body || !canSubmit) return;
@@ -170,6 +193,7 @@ export default function CreateCircle() {
     <Screen>
       <Header title="สร้างวงแชร์" back="/circles" />
       <main className="space-y-5 px-4 py-5">
+        <DefaultsBanner count={me.outstandingDefaults} />
         {me.kycStatus !== "APPROVED" && (
           <p className="rounded-xl bg-warn-soft p-3 text-sm text-amber-800">ต้องยืนยันตัวตนผ่านก่อนจึงสร้างวงได้</p>
         )}
@@ -229,7 +253,8 @@ export default function CreateCircle() {
               onChange={(e) => {
                 const n = Math.floor(Number(e.target.value));
                 setMaxMembers(n);
-                if (hostSeat !== null && hostSeat >= n) setHostSeat(0);
+                const reserved = trusted ? 0 : Math.floor(n / 2);
+                if (hostSeat !== null && (hostSeat >= n || hostSeat < reserved)) setHostSeat(trusted ? 0 : null);
               }}
               error={errors.maxMembers}
             />
@@ -247,17 +272,38 @@ export default function CreateCircle() {
               type="number"
               min={0}
               max={50}
-              step={0.5}
+              step={0.01}
               value={fixRate}
               onChange={(e) => setFixRate(Number(e.target.value))}
-              hint="ที่นั่งแรกจ่ายมากกว่าเงินต้น % นี้ ที่นั่งท้ายจ่ายน้อยกว่า % นี้"
+              hint={`ที่นั่งแรกจ่ายมากกว่าเงินต้น % นี้ ที่นั่งท้ายจ่ายน้อยกว่า % นี้ · งวด${periodLabel(windows.period)} ตั้งได้สูงสุด ±${percent(fixMaxBps)} (เพดาน ${annualCapLabel})`}
               error={errors.fixRateBps}
             />
           ) : (
-            <label className="flex items-center gap-3 text-sm text-ink">
-              <input type="checkbox" className="h-5 w-5 accent-primary" checked={hostTakesFirst} onChange={(e) => setHostTakesFirst(e.target.checked)} />
-              นายวงรับงวดแรกโดยไม่ต้องประมูล (มือนายวง)
-            </label>
+            <>
+              {cap !== null && cap >= 1n && (
+                <p className="rounded-xl bg-surface p-3 text-sm text-ink" data-testid="bid-cap">
+                  {type === CircleType.Discount ? "ส่วนลด" : "ดอก"}ที่เสนอได้สูงสุด <strong>{baht(cap)} บาท/งวด</strong> (เพดาน {annualCapLabel})
+                </p>
+              )}
+              <div>
+                <label className={cx("flex items-center gap-3 text-sm", trusted ? "text-ink" : "text-ink-muted")}>
+                  <input
+                    type="checkbox"
+                    className="h-5 w-5 accent-primary"
+                    checked={hostTakesFirst && trusted}
+                    disabled={!trusted}
+                    aria-describedby={trusted ? undefined : "host-first-why"}
+                    onChange={(e) => setHostTakesFirst(e.target.checked)}
+                  />
+                  นายวงรับงวดแรกโดยไม่ต้องประมูล (มือนายวง)
+                </label>
+                {!trusted && (
+                  <p id="host-first-why" className="mt-1 pl-8 text-xs text-ink-muted">
+                    ใช้ได้เฉพาะนายวงที่น่าเชื่อถือ (คะแนน {LEGAL_CAPS.trustedReputation} ขึ้นไป ตอนนี้คุณมี {me.reputation}) เพื่อกันการรับเงินก่อนแล้วหยุดจ่าย
+                  </p>
+                )}
+              </div>
+            </>
           )}
         </Card>
 
@@ -313,7 +359,16 @@ export default function CreateCircle() {
         </fieldset>
 
         {isFix && principal !== null && maxMembers >= 2 && maxMembers <= LEGAL_CAPS.maxMembers && (
-          <SeatPicker principal={principal} maxMembers={maxMembers} fixRateBps={Math.round(fixRate * 100)} taken={[]} value={hostSeat} onChange={setHostSeat} />
+          <SeatPicker
+            principal={principal}
+            maxMembers={maxMembers}
+            fixRateBps={Math.round(fixRate * 100)}
+            taken={[]}
+            value={hostSeat}
+            onChange={setHostSeat}
+            reservedSeats={reservedSeats}
+            trustedReputation={LEGAL_CAPS.trustedReputation}
+          />
         )}
 
         <Card className="space-y-3">
@@ -342,6 +397,8 @@ export default function CreateCircle() {
                 inputMode="decimal"
                 value={exampleBidText}
                 onChange={(e) => setExampleBidText(e.target.value.replace(/[^\d.]/g, ""))}
+                error={exampleBidError}
+                hint={exampleBidError ? undefined : "ซองที่เกินเพดานจะไม่ถูกนับ"}
                 className="mb-2"
               />
             )}

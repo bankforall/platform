@@ -22,6 +22,17 @@ export async function runKeeper(ctx: Ctx): Promise<number> {
       ctx.log.error({ err, circle: circle.id }, "keeper tick failed");
     }
   }
+  // decisions D4: circles that never filled within openTtl can be cancelled by anyone
+  const stale = await ctx.db.circle.findMany({
+    where: { status: "OPEN", address: { not: null }, openUntil: { lt: new Date(now * 1000) } },
+  });
+  for (const circle of stale) {
+    try {
+      if (await call(ctx, getAddress(circle.address!), "cancel", [])) sent++;
+    } catch (err) {
+      ctx.log.error({ err, circle: circle.id }, "stale circle cancel failed");
+    }
+  }
   return sent;
 }
 

@@ -38,6 +38,27 @@ export interface CircleRules {
   hostTakesFirst: boolean;
   /** Fix only: rate spread in basis points (1000 = ±10%). 0 means everyone pays `principal`. */
   fixRateBps: number;
+  /** Policy cap on a bid/discount (see `bidCap`); the principal still caps it too. */
+  maxBid?: bigint;
+  /** Early rounds (1..⌊N/2⌋) prefer members with at least this reputation (docs/v2/decisions.md D2). */
+  trustedReputation?: number;
+}
+
+const YEAR_SECONDS = 365n * 24n * 3600n;
+
+/** Annualised policy cap on a bid/discount per round (same as CircleFactory.bidCap). */
+export function bidCap(principal: bigint, periodSeconds: number, annualRateBps: number): bigint {
+  return (principal * BigInt(annualRateBps) * BigInt(periodSeconds)) / (YEAR_SECONDS * BPS);
+}
+
+/** Whether a Fix seat ladder stays within the annualised cap (per-round rate). */
+export function fixRateAllowed(fixRateBps: number, periodSeconds: number, annualRateBps: number): boolean {
+  return BigInt(fixRateBps) * YEAR_SECONDS <= BigInt(annualRateBps) * BigInt(periodSeconds);
+}
+
+/** Rounds that prefer trusted members as recipients. */
+export function isEarlyRound(rules: CircleRules, round: number): boolean {
+  return round <= Math.floor(rules.maxMembers / 2);
 }
 
 export interface Bid {
@@ -64,9 +85,9 @@ export function needsBidding(rules: CircleRules, round: number): boolean {
 
 /** Largest bid a member may place (inclusive). */
 export function maxBid(rules: CircleRules): bigint {
-  if (rules.type === CircleType.Discount) return rules.principal - 1n;
-  if (rules.type === CircleType.Float) return rules.principal;
-  return 0n;
+  const base =
+    rules.type === CircleType.Discount ? rules.principal - 1n : rules.type === CircleType.Float ? rules.principal : 0n;
+  return rules.maxBid !== undefined && rules.maxBid < base ? rules.maxBid : base;
 }
 
 /** Per-round payment of a Fix seat (0-based). Truncates toward zero, like Solidity. */
@@ -79,13 +100,16 @@ export function seatPayment(rules: CircleRules, seat: number): bigint {
 /**
  * Picks the recipient of a round.
  *
- * Bidding rounds: highest bid wins; ties go to the higher reputation, then to whoever
+  * Bidding rounds: highest bid wins; ties go to the higher reputation, then to whoever
  * committed first (`bids` must be in commit order). Bids from ineligible members or above
  * `maxBid` are ignored. Otherwise — or without a valid bid — the first eligible member in
  * priority order receives the pool with a bid of 0 (priority = seat order for Fix, join order
  * otherwise). A member is eligible if they have not received the pool yet and are not in
  * default; if nobody is eligible, the first member in priority order who has not received
  * the pool is chosen.
+ *
+ * Early bidding rounds (decisions D2): while any trusted eligible member remains, only trusted
+ * members' bids count and the fallback is the first trusted eligible member.
  */
 export function selectRecipient(
   rules: CircleRules,
@@ -97,11 +121,19 @@ export function selectRecipient(
   bids: readonly Bid[],
 ): { recipient: number; winningBid: bigint } {
   const eligible = (m: number) => !hasWon[m] && !defaulted[m];
+  const trusted = (m: number) =>
+    rules.trustedReputation === undefined || (reputations[m] ?? 0) >= rules.trustedReputation;
+  const trustedOnly =
+    needsBidding(rules, round) &&
+    rules.trustedReputation !== undefined &&
+    isEarlyRound(rules, round) &&
+    priority.some((m) => eligible(m) && trusted(m));
 
   if (needsBidding(rules, round)) {
     let best: Bid | undefined;
     for (const bid of bids) {
       if (!eligible(bid.member) || bid.amount > maxBid(rules)) continue;
+      if (trustedOnly && !trusted(bid.member)) continue;
       if (
         best === undefined ||
         bid.amount > best.amount ||
@@ -113,7 +145,9 @@ export function selectRecipient(
     if (best) return { recipient: best.member, winningBid: best.amount };
   }
 
-  const first = priority.find(eligible) ?? priority.find((m) => !hasWon[m]);
+  const first = trustedOnly
+    ? priority.find((m) => eligible(m) && trusted(m))
+    : (priority.find(eligible) ?? priority.find((m) => !hasWon[m]));
   if (first === undefined) throw new Error("every member has already received the pool");
   return { recipient: first, winningBid: 0n };
 }

@@ -25,6 +25,8 @@ const A2 = "0x00000000000000000000000000000000000000a2";
 /** Per-test tweaks of the fixtures. */
 let meOverrides: Partial<MeResponse> = {};
 let recipientIsMe = false;
+/** Mutates the raw circle fixture before it is validated. */
+let tweakCircle: (c: Record<string, any>) => void = () => {};
 let extraRoutes: (path: string, init?: RequestInit) => Promise<Response> | null = () => null;
 
 function me(): MeResponse {
@@ -50,6 +52,7 @@ function meDefaults() {
     kycReason: null,
     reputation: 120,
     onboarding: [],
+    outstandingDefaults: 0,
     pendingKeyRotation: null,
   };
 }
@@ -67,8 +70,9 @@ function circle(): CircleDetail {
     wonRound: i === 0 ? 1 : null,
     wonBid: "0",
     defaulted: false,
+    trusted: false,
   }));
-  return circleDetail.parse({
+  const raw: Record<string, any> = {
     id: "c1",
     name: "วงออฟฟิศ",
     address: "0x00000000000000000000000000000000000000c1",
@@ -83,6 +87,9 @@ function circle(): CircleDetail {
     currentRound: 2,
     host: { id: "u1", displayName: "สมชาย" },
     takenSeats: [0, 1, 2],
+    maxBid: "1232",
+    trustedReputation: 110,
+    openUntil: null,
     me: { isHost: true, seat: 0, hasWon: true, defaulted: false, dueNow: { amount: "100000", to: "สมหญิง", deadline: now + 86400, status: "NONE" } },
     description: null,
     inviteCode: "KnFsGdeT",
@@ -141,7 +148,39 @@ function circle(): CircleDetail {
         ],
       },
     ],
+  };
+  // every payment fixture without an explicit set-off has none
+  for (const round of raw.rounds) for (const p of round.payments) p.offset ??= "0";
+  tweakCircle(raw);
+  return circleDetail.parse(raw);
+}
+
+/** Round 2 of a 5-member circle, still taking sealed bids; I have not received the pool yet. */
+function openBidding(c: Record<string, any>, opts: { meTrusted: boolean; otherTrusted: boolean }) {
+  c.maxMembers = 5;
+  c.members[0] = { ...c.members[0], hasWon: false, wonRound: null, trusted: opts.meTrusted, reputation: opts.meTrusted ? 120 : 100 };
+  c.members[1] = { ...c.members[1], hasWon: true, wonRound: 1 };
+  c.members[2] = { ...c.members[2], trusted: opts.otherTrusted, reputation: opts.otherTrusted ? 120 : 100 };
+  c.me = { ...c.me, hasWon: false, dueNow: null };
+  Object.assign(c.rounds[1], {
+    biddingEnds: now + 86400,
+    revealEnds: now + 2 * 86400,
+    decided: false,
+    recipient: null,
+    recipientName: null,
+    winningBid: "0",
+    paymentDeadline: null,
+    defaultAfter: null,
+    acceptAfter: null,
+    payments: [],
+    committed: [],
+    revealed: [],
   });
+}
+
+/** Sets my payment in round 2 (recipient สมหญิง). */
+function myPayment(c: Record<string, any>, fields: Record<string, unknown>) {
+  Object.assign(c.rounds[1].payments[0], fields);
 }
 
 function json(data: unknown) {
@@ -187,6 +226,7 @@ describe("screens render with contract-valid data", () => {
     ME = await storeLocalKey(newPrivateKey());
     meOverrides = {};
     recipientIsMe = false;
+    tweakCircle = () => {};
     extraRoutes = () => null;
     vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => routes(url, init)));
     vi.spyOn(console, "error").mockImplementation((...args) => errors.push(["error", ...args]));
@@ -220,7 +260,123 @@ describe("screens render with contract-valid data", () => {
     renderAt("/circles/new");
     expect(await screen.findByText("ตัวอย่างตารางรับ-จ่าย")).toBeInTheDocument();
     fireEvent.click(screen.getByLabelText(/เลือกที่นั่ง \(Fix\)/));
-    expect(await screen.findByText(/1\. 1,100 บาท/)).toBeInTheDocument();
+    // the default ±1% ladder stays within 15% a year for a monthly circle
+    expect(await screen.findByText(/1\. 1,010 บาท/)).toBeInTheDocument();
+    expect(screen.getByText(/ตั้งได้สูงสุด ±1\.23%/)).toBeInTheDocument();
+  });
+
+  it("create circle shows the bid cap for bidding circles", async () => {
+    renderAt("/circles/new");
+    expect(await screen.findByTestId("bid-cap")).toHaveTextContent("ดอกที่เสนอได้สูงสุด 12.32 บาท/งวด (เพดาน 15% ต่อปี)");
+    fireEvent.change(screen.getByLabelText("เงินต่องวด"), { target: { value: "1" } });
+    fireEvent.click(screen.getByRole("button", { name: "รายวัน" }));
+    expect(await screen.findByText("เงินต้นหรือระยะงวดน้อยเกินไปสำหรับวงประมูล")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "สร้างวง" })).toBeDisabled();
+  });
+
+  it("host-first is disabled for a host below the trusted reputation", async () => {
+    meOverrides = { reputation: 100 };
+    renderAt("/circles/new");
+    const box = await screen.findByLabelText(/มือนายวง/);
+    expect(box).toBeDisabled();
+    expect(box).not.toBeChecked();
+    expect(screen.getByText(/ใช้ได้เฉพาะนายวงที่น่าเชื่อถือ \(คะแนน 110 ขึ้นไป ตอนนี้คุณมี 100\)/)).toBeInTheDocument();
+  });
+
+  it("host-first stays available for a trusted host", async () => {
+    renderAt("/circles/new");
+    const box = await screen.findByLabelText(/มือนายวง/);
+    expect(box).toBeEnabled();
+    expect(box).toBeChecked();
+  });
+
+  it("payment tab: partial set-off shows what is left to transfer", async () => {
+    tweakCircle = (c) => myPayment(c, { amount: "60000", offset: "40000" });
+    renderAt("/circles/c1?tab=payment");
+    expect(await screen.findByTestId("set-off")).toHaveTextContent("หักกลบหนี้ที่ สมหญิง ค้างคุณ 400 บาท — โอนเพิ่ม 600 บาท");
+    expect(await screen.findByText("ยอดที่ต้องโอนงวดนี้")).toBeInTheDocument();
+  });
+
+  it("payment tab: full set-off needs no transfer", async () => {
+    tweakCircle = (c) => myPayment(c, { amount: "0", offset: "100000", status: "CONFIRMED", txHash: "0x02" });
+    renderAt("/circles/c1?tab=payment");
+    expect(await screen.findByTestId("set-off")).toHaveTextContent("ไม่ต้องโอน — หักกลบครบแล้ว ✓");
+    expect(screen.getByTestId("set-off")).toHaveTextContent("หักกลบหนี้ที่ สมหญิง ค้างคุณ 1,000 บาท");
+    expect(screen.queryByText("ยอดที่ต้องโอนงวดนี้")).not.toBeInTheDocument();
+    expect(screen.queryByText("โอนแล้ว — อัปโหลดสลิป")).not.toBeInTheDocument();
+  });
+
+  it("recipient sees the set-off per payer", async () => {
+    recipientIsMe = true;
+    tweakCircle = (c) => Object.assign(c.rounds[1].payments[1], { amount: "70000", offset: "30000" });
+    renderAt("/circles/c1?tab=payment");
+    const row = (await screen.findByText("มานี")).closest("li")!;
+    expect(row).toHaveTextContent("หักกลบหนี้ที่คุณค้าง 300 บาท");
+  });
+
+  it("bidding: a newcomer is told their bid cannot win an early round", async () => {
+    tweakCircle = (c) => openBidding(c, { meTrusted: false, otherTrusted: true });
+    renderAt("/circles/c1?tab=bidding");
+    expect(await screen.findByText(/ซองของคุณจะไม่ชนะงวดนี้/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "ยื่นซอง" })).toBeInTheDocument();
+    expect(screen.getByText("สมาชิกที่น่าเชื่อถือ")).toBeInTheDocument();
+  });
+
+  it("bidding: no early-round notice when no trusted member can still receive", async () => {
+    tweakCircle = (c) => openBidding(c, { meTrusted: false, otherTrusted: false });
+    renderAt("/circles/c1?tab=bidding");
+    expect(await screen.findByRole("button", { name: "ยื่นซอง" })).toBeInTheDocument();
+    expect(screen.queryByText(/ซองของคุณจะไม่ชนะงวดนี้/)).not.toBeInTheDocument();
+  });
+
+  it("bidding: the keypad refuses a bid above the interest cap", async () => {
+    tweakCircle = (c) => openBidding(c, { meTrusted: true, otherTrusted: false });
+    renderAt("/circles/c1?tab=bidding");
+    const input = await screen.findByLabelText("ดอกต่องวด (บาท)");
+    expect(screen.getByText("เสนอได้สูงสุด 12.32 บาท/งวด (เพดาน 15% ต่อปี)")).toBeInTheDocument();
+    fireEvent.change(input, { target: { value: "12.33" } });
+    expect(input).toHaveValue("");
+    expect(screen.getByText("เกินเพดาน — เสนอได้สูงสุด 12.32 บาท/งวด (เพดาน 15% ต่อปี)")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "ยื่นซอง" })).toBeDisabled();
+    fireEvent.change(input, { target: { value: "12.32" } });
+    expect(input).toHaveValue("12.32");
+    expect(screen.getByRole("button", { name: "ยื่นซอง" })).toBeEnabled();
+  });
+
+  it("members tab marks trusted members", async () => {
+    tweakCircle = (c) => Object.assign(c.members[1], { trusted: true, reputation: 115 });
+    renderAt("/circles/c1?tab=members");
+    const row = (await screen.findByText(/คะแนนความน่าเชื่อถือ 115/)).closest("li")!;
+    expect(row).toHaveTextContent("สมาชิกที่น่าเชื่อถือ");
+  });
+
+  it("open circles show when they close automatically", async () => {
+    tweakCircle = (c) => Object.assign(c, { status: "OPEN", currentRound: 0, openUntil: now - 60 });
+    renderAt("/circles/c1?tab=members");
+    expect(await screen.findByText(/วงนี้จะถูกระบบยกเลิกโดยอัตโนมัติ/)).toBeInTheDocument();
+  });
+
+  it("home blocks create/join while defaults are outstanding", async () => {
+    meOverrides = { outstandingDefaults: 2 };
+    renderAt("/");
+    expect(
+      await screen.findByText("มีหนี้ผิดนัดค้าง 2 รายการ — ชำระย้อนหลังให้ผู้รับยืนยันก่อน จึงจะสร้างหรือเข้าวงใหม่ได้"),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "+ สร้างวง" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "ค้นหาวง" })).toBeDisabled();
+  });
+
+  it("admin KYC approval defaults to reputation 100 and explains the trusted level", async () => {
+    extraRoutes = (path) =>
+      path === "/admin/kyc"
+        ? json([{ id: "k1", userId: "u9", displayName: "ใหม่", fullName: "นาย ใหม่ ทดสอบ", nationalIdLast4: "1234", status: "PENDING", createdAt: new Date().toISOString() }])
+        : null;
+    renderAt("/admin");
+    const input = await screen.findByLabelText("คะแนนเริ่มต้น");
+    expect(input).toHaveValue(100);
+    expect(screen.getByText(/110 ขึ้นไป = "น่าเชื่อถือ"/)).toBeInTheDocument();
+    fireEvent.change(input, { target: { value: "120" } });
+    expect(screen.getByText(/สมาชิกที่น่าเชื่อถือ/)).toBeInTheDocument();
   });
 
   it.each(["/circles", "/profile", "/notifications", "/admin", "/how-it-works"])("%s renders", async (path) => {

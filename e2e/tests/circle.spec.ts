@@ -42,7 +42,7 @@ test.describe.serial("peer-share circle end to end", () => {
     for (const a of [host, alice, bob]) await onboard(a);
   });
 
-  test("admin approves the three KYC submissions", async () => {
+  test("admin approves the three KYC submissions (the host as a trusted member)", async () => {
     const { page } = admin;
     await devLogin(page, admin.name);
     promoteAdmin(`dev:${admin.name}`);
@@ -54,6 +54,13 @@ test.describe.serial("peer-share circle end to end", () => {
     for (const a of [host, alice, bob]) {
       const card = page.locator("section").filter({ hasText: `${a.name} ทดสอบ` });
       await expect(card).toBeVisible();
+      const reputation = card.getByLabel("คะแนนเริ่มต้น");
+      await expect(reputation).toHaveValue("100");
+      // decisions D2: only a trusted host (≥ 110) may take round 1 without bidding
+      if (a === host) {
+        await reputation.fill("120");
+        await expect(card.getByText(/สมาชิกที่น่าเชื่อถือ/)).toBeVisible();
+      }
       await card.getByRole("button", { name: "อนุมัติ", exact: true }).click();
       await expect(card).toBeHidden();
     }
@@ -69,13 +76,17 @@ test.describe.serial("peer-share circle end to end", () => {
     await page.getByLabel("เงินต่องวด").fill("1000");
     await page.getByLabel(/จำนวนมือ/).fill("3");
     await expect(page.getByLabel(/วงส่วนตัว/)).toBeChecked();
+    await expect(page.getByLabel(/มือนายวง/)).toBeEnabled();
+    await expect(page.getByLabel(/มือนายวง/)).toBeChecked();
+    // decisions D3: 1,000 baht monthly at 15% a year → at most 12.32 baht per round
+    await expect(page.getByTestId("bid-cap")).toContainText("12.32 บาท/งวด");
 
-    // preview: host takes round 1; with a 50-baht winning bid the last round pays 1,000 + 1,050
+    // preview: host takes round 1; with a 10-baht winning bid the last round pays 1,000 + 1,010
     const rows = page.locator("table tbody tr");
     await expect(rows).toHaveCount(3);
     await expect(rows.nth(0)).toContainText("คุณ (นายวง)");
     await expect(rows.nth(0)).toContainText("2,000");
-    await expect(rows.nth(2)).toContainText("2,050");
+    await expect(rows.nth(2)).toContainText("2,010");
 
     await act(page, page.getByRole("button", { name: "สร้างวง", exact: true }));
     await page.waitForURL(/\/circles\/[^/]+$/);
@@ -137,17 +148,20 @@ test.describe.serial("peer-share circle end to end", () => {
     await eventually(page, () => page.getByText("ยืนยันแล้ว 2/2 คน"));
   });
 
-  test("round 2: sealed bids decide the recipient", async () => {
+  test("round 2: sealed bids within the interest cap decide the recipient", async () => {
     await warp(30 * DAY + 60);
 
     for (const [a, bid] of [
-      [alice, "50"],
-      [bob, "30"],
+      [alice, "10"],
+      [bob, "6"],
     ] as const) {
       const { page } = a;
       await open(page, `${circleUrl}?tab=bidding`);
       await eventually(page, () => page.getByRole("button", { name: "ยื่นซอง", exact: true }));
       await expect(page.getByRole("heading", { name: "งวดที่ 2" })).toBeVisible();
+      await expect(page.getByText("เสนอได้สูงสุด 12.32 บาท/งวด (เพดาน 15% ต่อปี)")).toBeVisible();
+      // round 2 of 3 is not an early round, so members with the starting reputation can win
+      await expect(page.getByText(/ซองของคุณจะไม่ชนะงวดนี้/)).toBeHidden();
       await page.getByLabel("ดอกต่องวด (บาท)").fill(bid);
       await act(page, page.getByRole("button", { name: "ยื่นซอง", exact: true }));
       await expect(page.getByText("คุณยื่นซองแล้ว ✓", { exact: false })).toBeVisible();
@@ -158,18 +172,19 @@ test.describe.serial("peer-share circle end to end", () => {
     const { page } = host;
     await open(page, `${circleUrl}?tab=bidding`);
     const bidders = page.locator("li");
-    await eventually(page, () => bidders.filter({ hasText: alice.name }).getByText("50 บาท"));
-    await expect(bidders.filter({ hasText: bob.name }).getByText("30 บาท")).toBeVisible();
+    await eventually(page, () => bidders.filter({ hasText: alice.name }).getByText("10 บาท"));
+    await expect(bidders.filter({ hasText: bob.name }).getByText("6 บาท")).toBeVisible();
 
     // past the reveal window: the keeper closes bidding and the highest bid wins
     await warp(DAY + 60);
     await eventually(page, () => page.getByText(/ผู้ชนะ:/));
     await expect(page.getByText(/ผู้ชนะ:/)).toContainText(alice.name);
-    await expect(page.getByText(/ผู้ชนะ:/)).toContainText("50");
+    await expect(page.getByText(/ผู้ชนะ:/)).toContainText("10 บาท");
 
-    // bob now owes alice the principal; alice is the recipient
+    // bob has not won yet, so he owes alice just the principal (alice pays 1,000 + 10 in round 3)
     await open(bob.page, `${circleUrl}?tab=payment`);
     await eventually(bob.page, () => bob.page.getByText("ยอดที่ต้องโอนงวดนี้"));
+    await expect(bob.page.getByRole("img", { name: /QR พร้อมเพย์ 1,000 บาท/ })).toBeVisible();
     await expect(bob.page.getByText(alice.name).first()).toBeVisible();
     await open(alice.page, `${circleUrl}?tab=payment`);
     await eventually(alice.page, () => alice.page.getByText("งวดนี้คุณเป็นผู้รับเงินกองกลาง 🎉"));

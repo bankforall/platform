@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { CircleType, bidHash, maxBid, type CircleRules } from "@bankforall/shared";
+import { CircleType, bidHash, isEarlyRound, maxBid, type CircleRules } from "@bankforall/shared";
 import { api } from "@/api/endpoints";
 import { useIntent } from "@/hooks/useIntent";
 import { Avatar, Button, Card, Chip, Field, KeyValue, SectionTitle } from "@/components/ui";
 import { Countdown, useNow } from "@/components/widgets";
 import { baht, dateTime, parseBaht, sameAddress } from "@/lib/format";
 import { randomBytes, toHex } from "@/wallet/crypto";
+import { TrustedBadge, annualCapLabel } from "@/components/RuleNotices";
 import { currentRound, memberByAddress, nameOf } from "./common";
 import type { TabProps } from "./CircleDetail";
 
@@ -13,6 +14,7 @@ export default function BiddingTab({ circle, myAddress }: TabProps) {
   const { run } = useIntent();
   const now = useNow();
   const [amountText, setAmountText] = useState("");
+  const [refused, setRefused] = useState(false);
   const round = currentRound(circle);
   const me = memberByAddress(circle, myAddress);
   const isDiscount = circle.type === CircleType.Discount;
@@ -22,6 +24,8 @@ export default function BiddingTab({ circle, myAddress }: TabProps) {
     maxMembers: circle.maxMembers,
     hostTakesFirst: circle.hostTakesFirst,
     fixRateBps: circle.fixRateBps,
+    maxBid: circle.maxBid !== null ? BigInt(circle.maxBid) : undefined,
+    trustedReputation: circle.trustedReputation ?? undefined,
   };
 
   if (circle.type === CircleType.Fix) {
@@ -45,7 +49,21 @@ export default function BiddingTab({ circle, myAddress }: TabProps) {
 
   const amount = parseBaht(amountText);
   const cap = maxBid(rules);
-  const amountError = amount === null ? (amountText ? "จำนวนเงินไม่ถูกต้อง" : undefined) : amount > cap ? `สูงสุด ${baht(cap)} บาท` : undefined;
+  const capText = `เสนอได้สูงสุด ${baht(cap)} บาท/งวด${circle.maxBid !== null ? ` (เพดาน ${annualCapLabel})` : ""}`;
+  const amountError =
+    amount === null ? (amountText ? "จำนวนเงินไม่ถูกต้อง" : undefined) : amount > cap ? capText : undefined;
+  /** Keypad input: a value above the cap is refused (the contract would ignore such a bid). */
+  const changeAmount = (raw: string) => {
+    const text = raw.replace(/[^\d.]/g, "");
+    const value = parseBaht(text);
+    if (value !== null && value > cap) return setRefused(true);
+    setRefused(false);
+    setAmountText(text);
+  };
+
+  // decisions D2: in early rounds only trusted members can win while any of them can still receive
+  const trustedLeft = circle.members.some((m) => m.trusted && !m.hasWon && !m.defaulted);
+  const newcomerBlocked = isEarlyRound(rules, round.number) && !!me && !me.trusted && trustedLeft;
   const remaining = circle.maxMembers - circle.currentRound;
 
   const submit = async () => {
@@ -99,6 +117,13 @@ export default function BiddingTab({ circle, myAddress }: TabProps) {
         )}
       </Card>
 
+      {phase === "commit" && eligible && newcomerBlocked && (
+        <p className="rounded-xl bg-warn-soft p-3 text-sm text-amber-800" role="note">
+          งวดนี้อยู่ในช่วงครึ่งแรกของวง ผู้ชนะต้องเป็นสมาชิกที่น่าเชื่อถือ
+          {circle.trustedReputation !== null && ` (คะแนน ${circle.trustedReputation} ขึ้นไป)`} — ซองของคุณจะไม่ชนะงวดนี้
+          แม้จะเสนอสูงสุด (ยังยื่นซองได้ แต่ซองจะไม่ถูกนับ) ตั้งแต่งวดที่ {Math.floor(circle.maxMembers / 2) + 1} เป็นต้นไปไม่มีข้อจำกัดนี้
+        </p>
+      )}
       {phase === "commit" && eligible && !committed && (
         <Card className="space-y-4">
           <h3 className="font-semibold text-ink">ยื่นซองของฉัน</h3>
@@ -110,9 +135,10 @@ export default function BiddingTab({ circle, myAddress }: TabProps) {
             label={isDiscount ? "ส่วนลด (บาท)" : "ดอกต่องวด (บาท)"}
             inputMode="decimal"
             value={amountText}
-            onChange={(e) => setAmountText(e.target.value.replace(/[^\d.]/g, ""))}
+            onChange={(e) => changeAmount(e.target.value)}
             className="[&_input]:text-center [&_input]:text-3xl [&_input]:font-semibold"
-            error={amountError}
+            error={amountError ?? (refused ? `เกินเพดาน — ${capText}` : undefined)}
+            hint={capText}
             placeholder="0"
           />
           {amount !== null && !amountError && (
@@ -164,6 +190,7 @@ export default function BiddingTab({ circle, myAddress }: TabProps) {
                   <span className="flex-1 truncate text-sm font-medium text-ink">
                     {m.displayName}
                     {sameAddress(m.address, myAddress) && " (คุณ)"}
+                    {m.trusted && <TrustedBadge />}
                   </span>
                   {revealed ? (
                     <Chip tone={sameAddress(round.recipient, m.address) ? "success" : "neutral"}>{baht(revealed.amount)} บาท</Chip>

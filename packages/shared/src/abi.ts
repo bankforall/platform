@@ -64,6 +64,25 @@ export const circleAbi = [
   },
   {
     "type": "function",
+    "name": "baseDue",
+    "inputs": [
+      {
+        "name": "payer",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint128",
+        "internalType": "uint128"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "bidHash",
     "inputs": [
       {
@@ -327,6 +346,25 @@ export const circleAbi = [
   },
   {
     "type": "function",
+    "name": "isEarlyRound",
+    "inputs": [
+      {
+        "name": "round",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "isTrustedForwarder",
     "inputs": [
       {
@@ -502,6 +540,43 @@ export const circleAbi = [
     "inputs": [],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "openUntil",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "owed",
+    "inputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint128",
+        "internalType": "uint128"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -802,6 +877,19 @@ export const circleAbi = [
     "stateMutability": "view"
   },
   {
+    "type": "function",
+    "name": "trustedReputation",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint32",
+        "internalType": "uint32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
     "type": "event",
     "name": "BidCommitted",
     "inputs": [
@@ -1096,6 +1184,43 @@ export const circleAbi = [
   },
   {
     "type": "event",
+    "name": "PaymentOffset",
+    "inputs": [
+      {
+        "name": "round",
+        "type": "uint8",
+        "indexed": true,
+        "internalType": "uint8"
+      },
+      {
+        "name": "payer",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "recipient",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "offset",
+        "type": "uint128",
+        "indexed": false,
+        "internalType": "uint128"
+      },
+      {
+        "name": "remaining",
+        "type": "uint128",
+        "indexed": false,
+        "internalType": "uint128"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "PaymentRejected",
     "inputs": [
       {
@@ -1298,6 +1423,11 @@ export const circleAbi = [
   },
   {
     "type": "error",
+    "name": "NotTrusted",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "OutsideWindow",
     "inputs": []
   },
@@ -1476,6 +1606,30 @@ export const circleFactoryAbi = [
         "name": "",
         "type": "bytes32",
         "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "bidCap",
+    "inputs": [
+      {
+        "name": "principal",
+        "type": "uint128",
+        "internalType": "uint128"
+      },
+      {
+        "name": "period",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint128",
+        "internalType": "uint128"
       }
     ],
     "stateMutability": "view"
@@ -1784,6 +1938,19 @@ export const circleFactoryAbi = [
   },
   {
     "type": "function",
+    "name": "lastUnpausedAt",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "maxActiveCirclesPerHost",
     "inputs": [],
     "outputs": [
@@ -1791,6 +1958,19 @@ export const circleFactoryAbi = [
         "name": "",
         "type": "uint8",
         "internalType": "uint8"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "maxAnnualRateBps",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint16",
+        "internalType": "uint16"
       }
     ],
     "stateMutability": "view"
@@ -1851,6 +2031,19 @@ export const circleFactoryAbi = [
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "openTtl",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -1933,6 +2126,29 @@ export const circleFactoryAbi = [
   },
   {
     "type": "function",
+    "name": "setPolicy",
+    "inputs": [
+      {
+        "name": "annualRateBps",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "trustedRep",
+        "type": "uint32",
+        "internalType": "uint32"
+      },
+      {
+        "name": "ttl",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "supportsInterface",
     "inputs": [
       {
@@ -1959,6 +2175,19 @@ export const circleFactoryAbi = [
         "name": "",
         "type": "address",
         "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "trustedReputation",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint32",
+        "internalType": "uint32"
       }
     ],
     "stateMutability": "view"
@@ -2190,6 +2419,31 @@ export const circleFactoryAbi = [
         "type": "address",
         "indexed": false,
         "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "PolicyUpdated",
+    "inputs": [
+      {
+        "name": "maxAnnualRateBps",
+        "type": "uint16",
+        "indexed": false,
+        "internalType": "uint16"
+      },
+      {
+        "name": "trustedReputation",
+        "type": "uint32",
+        "indexed": false,
+        "internalType": "uint32"
+      },
+      {
+        "name": "openTtl",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
       }
     ],
     "anonymous": false

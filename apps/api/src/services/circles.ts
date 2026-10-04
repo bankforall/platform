@@ -77,6 +77,9 @@ export async function summaryView(ctx: Ctx, circle: CircleWith, user: User | nul
     period: circle.period,
     isPrivate: circle.isPrivate,
     currentRound: circle.currentRound,
+    maxBid: circle.maxBid?.toString() ?? null,
+    trustedReputation: circle.trustedReputation ?? 0,
+    openUntil: unix(circle.openUntil),
     host: { id: circle.hostId, displayName: circle.host.displayName },
     takenSeats: circle.type === CircleType.Fix ? circle.memberships.map((m) => m.seat) : [],
     me: me
@@ -143,6 +146,7 @@ export async function detailView(ctx: Ctx, circleId: string, user: User | null):
         wonRound: m.wonRound,
         wonBid: m.wonBid.toString(),
         defaulted: m.defaulted,
+        trusted: m.reputation >= (circle.trustedReputation ?? 0),
       };
     }),
     rounds: rounds.map((r) => roundView(circle, r, payments, bids, nameOf, slipVerify)),
@@ -177,6 +181,7 @@ function roundView(
         payer: p.payer,
         payerName: nameOf(p.payer),
         amount: p.amount?.toString() ?? null,
+        offset: p.offset.toString(),
         status: p.status,
         slipId: p.slipId,
         slipVerify: p.slipId ? (slipVerify.get(p.slipId) ?? null) : null,
