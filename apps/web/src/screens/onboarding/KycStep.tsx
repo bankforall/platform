@@ -5,6 +5,8 @@ import { errorMessage } from "@/api/client";
 import { Button, Field } from "@/components/ui";
 
 const MAX_BYTES = 8 * 1024 * 1024;
+/** Same types the API accepts (it checks the file content too). No SVG. */
+const RASTER_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/heic"]);
 
 /** Thai national ID checksum (mod 11). */
 export function isValidThaiId(id: string): boolean {
@@ -29,9 +31,10 @@ function PhotoInput({
 }) {
   const [preview, setPreview] = useState<string | null>(null);
   useEffect(() => {
-    if (!file) return setPreview(null);
+    if (!file || !RASTER_TYPES.has(file.type)) return setPreview(null);
     const url = URL.createObjectURL(file);
-    setPreview(url);
+    // only ever a local blob: URL of the user's own raster image
+    setPreview(url.startsWith("blob:") ? url : null);
     return () => URL.revokeObjectURL(url);
   }, [file]);
 
@@ -49,13 +52,13 @@ function PhotoInput({
       <span className="mt-2 inline-block text-sm font-medium text-primary">{file ? "ถ่ายใหม่" : "ถ่ายรูป / เลือกรูป"}</span>
       <input
         type="file"
-        accept="image/*"
+        accept="image/jpeg,image/png,image/webp,image/heic"
         capture={capture}
         className="sr-only"
         onChange={(e) => {
           const f = e.target.files?.[0] ?? null;
           if (f && f.size > MAX_BYTES) onChange(null, "ไฟล์ใหญ่เกิน 8MB");
-          else if (f && !f.type.startsWith("image/")) onChange(null, "ต้องเป็นไฟล์รูปภาพ");
+          else if (f && !RASTER_TYPES.has(f.type)) onChange(null, "ต้องเป็นรูป JPEG, PNG, WebP หรือ HEIC");
           else onChange(f);
         }}
       />

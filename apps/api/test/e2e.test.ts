@@ -21,7 +21,7 @@ import {
 } from "@bankforall/shared";
 import { generatePrivateKey, privateKeyToAccount, type PrivateKeyAccount } from "viem/accounts";
 import { toHex } from "viem";
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomInt } from "node:crypto";
 import { Redis } from "ioredis";
 import { buildApp, CSRF_HEADER, CSRF_VALUE } from "../src/app.js";
 import { createChain } from "../src/chain/clients.js";
@@ -131,12 +131,12 @@ const png = (label: string) =>
   Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from(label.padEnd(16, "."))]);
 
 function nationalId(): string {
-  const d = Array.from({ length: 12 }, (_, i) => (i === 0 ? 1 + (randomBytes(1)[0]! % 8) : randomBytes(1)[0]! % 10));
+  const d = Array.from({ length: 12 }, (_, i) => (i === 0 ? randomInt(1, 9) : randomInt(0, 10)));
   const sum = d.reduce((s, x, i) => s + x * (13 - i), 0);
   return d.join("") + ((11 - (sum % 11)) % 10);
 }
 
-const phone = () => "08" + String(10_000_000 + (randomBytes(4).readUInt32BE() % 89_999_999));
+const phone = () => "08" + String(randomInt(10_000_000, 100_000_000));
 
 async function warp(seconds: number) {
   const rpc = (method: string, params: unknown[]) =>
