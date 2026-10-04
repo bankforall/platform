@@ -88,6 +88,9 @@ API ของ contract อ่านได้จาก `packages/shared/src/abi.t
 5. **slips** — ส่งสลิปให้ verifier (`none` หรือ `slipok`; ส่งเฉพาะรูป + ยอด) ถ้าผ่าน → `attestSlip`; error ของผู้ให้บริการ → คง `PENDING` แล้วลองใหม่แบบ backoff (`verifyAttempts`/`verifyAfter`) ครบจำนวน → `SKIPPED` + แจ้งเตือน
 6. **reminders** — แจ้งเตือน D-2 / D-0 / เลยกำหนด (กันซ้ำด้วย `dedupeKey`)
 7. **push** — ส่ง notification ไป LINE
+8. **rotations** — เปลี่ยนกุญแจที่อนุมัติครบและพ้นเวลารอแล้ว
+9. **deletions** — ลบบัญชี (PDPA) ที่พ้นระยะรอ หลังตรวจซ้ำว่าไม่มีวงที่ยังไม่จบหรือหนี้ค้าง ([security.md §5](./security.md#5-ข้อมูลส่วนบุคคลและสิทธิตาม-pdpa))
+10. **slip-retention** — ลบไฟล์สลิปของบัญชีที่ลบแล้วเมื่อครบ `DELETED_SLIP_RETENTION_DAYS` หลังวงจบ
 
 job ที่ล้มติดกัน `ALERT_JOB_FAILURES` รอบจะถูกแจ้งเตือน; loop ที่สำเร็จครบทุก job จะ ping `HEARTBEAT_URL` (uptime monitor ภายนอกแจ้งเมื่อ ping หยุด)
 ทุกเหตุการณ์ `ALERT:` ผ่าน `alert()` (`apps/api/src/alert.ts`): log + webhook (Slack/Discord/JSON) + กลุ่ม LINE, กันซ้ำต่อ key ด้วย Redis และตัดข้อมูลลับ/ส่วนบุคคลก่อนส่ง — ดู [deployment.md §4.1](./deployment.md#41-การแจ้งเตือน-alerting-และ-uptime)

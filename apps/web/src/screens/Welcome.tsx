@@ -1,8 +1,11 @@
 import { Link, Navigate, useSearchParams } from "react-router";
+import { APP_SHORT_NAME } from "@/lib/brand";
 import { useMe } from "@/hooks/session";
 import { LinkButton } from "@/components/ui";
 
 export function Logo({ className = "" }: { className?: string }) {
+  // "Bank For All" → large "Bank" over "For All"
+  const [first, ...rest] = APP_SHORT_NAME.split(" ");
   return (
     <div className={`flex flex-col items-center text-white ${className}`}>
       <svg width="72" height="72" viewBox="0 0 72 72" aria-hidden>
@@ -11,8 +14,8 @@ export function Logo({ className = "" }: { className?: string }) {
           return <circle key={i} cx={36 + Math.cos(a) * 24} cy={36 + Math.sin(a) * 24} r={6.5} fill="currentColor" opacity={0.55 + (i % 4) * 0.15} />;
         })}
       </svg>
-      <p className="mt-3 text-5xl font-semibold tracking-tight">Bank</p>
-      <p className="text-lg text-white/80">For All</p>
+      <p className="mt-3 text-5xl font-semibold tracking-tight">{first}</p>
+      {rest.length > 0 && <p className="text-lg text-white/80">{rest.join(" ")}</p>}
     </div>
   );
 }

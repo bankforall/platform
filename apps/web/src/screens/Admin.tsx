@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { LEGAL_CAPS, type KeyRotationView } from "@bankforall/shared";
-import { api, qk, type KeyRotationStatus, type KycReviewItem } from "@/api/endpoints";
+import { api, qk, type DeletionRequestStatus, type KeyRotationStatus, type KycReviewItem } from "@/api/endpoints";
 import { errorMessage } from "@/api/client";
 import { Header, Screen } from "@/components/layout";
 import { useToast } from "@/components/overlay";
@@ -221,6 +221,55 @@ function KeyRotations() {
   );
 }
 
+const deletionStatusText: Record<DeletionRequestStatus, string> = {
+  PENDING: "รอครบเวลา",
+  REFUSED: "ปฏิเสธ",
+  COMPLETED: "ลบแล้ว",
+  CANCELLED: "ผู้ใช้ยกเลิก",
+};
+
+/** PDPA account deletion requests: read-only, the worker checks eligibility and anonymises. */
+function DeletionRequests() {
+  const [status, setStatus] = useState<DeletionRequestStatus>("PENDING");
+  const q = useQuery({ queryKey: qk.deletionRequests(status), queryFn: () => api.deletionRequests(status) });
+  return (
+    <section aria-labelledby="deletion-requests" className="space-y-3 pt-4">
+      <h2 id="deletion-requests" className="text-lg font-semibold text-ink">
+        คำขอลบบัญชี (PDPA)
+      </h2>
+      <p className="text-sm text-ink-muted">
+        ระบบลบอัตโนมัติเมื่อครบระยะรอ โดยปฏิเสธถ้าผู้ใช้ยังอยู่ในวงที่ยังไม่จบหรือมีหนี้ผิดนัดค้าง รายการนี้มีไว้ตรวจสอบเท่านั้น
+      </p>
+      <Tabs<DeletionRequestStatus>
+        value={status}
+        onChange={setStatus}
+        tabs={(["PENDING", "REFUSED", "COMPLETED", "CANCELLED"] as const).map((id) => ({ id, label: deletionStatusText[id] }))}
+      />
+      {q.isLoading ? (
+        <Loading />
+      ) : q.isError ? (
+        <ErrorState message={errorMessage(q.error)} onRetry={() => void q.refetch()} />
+      ) : !q.data?.length ? (
+        <EmptyState title="ไม่มีคำขอ" icon="🗑️" />
+      ) : (
+        q.data.map((d) => (
+          <Card key={d.id} className="space-y-1 text-sm">
+            <div className="flex items-start justify-between gap-2">
+              <p className="font-semibold text-ink">{d.displayName}</p>
+              <Chip tone={d.status === "REFUSED" ? "danger" : d.status === "COMPLETED" ? "success" : "warn"}>{deletionStatusText[d.status]}</Chip>
+            </div>
+            <p className="text-xs text-ink-muted">
+              User ID {d.userId} · ขอเมื่อ {new Date(d.createdAt).toLocaleString("th-TH")} · ดำเนินการหลัง{" "}
+              {new Date(d.executeAfter).toLocaleString("th-TH")}
+            </p>
+            {d.reason && <p className="text-xs text-danger">{d.reason}</p>}
+          </Card>
+        ))
+      )}
+    </section>
+  );
+}
+
 export default function Admin() {
   const [status, setStatus] = useState<Status>("PENDING");
   const q = useQuery({ queryKey: qk.kyc(status), queryFn: () => api.kycQueue(status) });
@@ -258,6 +307,7 @@ export default function Admin() {
             ))
           )}
           <KeyRotations />
+          <DeletionRequests />
           {!mustEnrol && <AdminSecurity query={security} />}
         </main>
       </Screen>

@@ -16,6 +16,7 @@ import {
 import { audit } from "../services/audit.js";
 import { decideKyc, kycFile, listKyc } from "../services/kyc.js";
 import { approveRotation, listRotations, rejectRotation } from "../services/rotation.js";
+import { listDeletionRequests } from "../services/privacy.js";
 
 const idParams = z.object({ id: z.string().min(1) });
 
@@ -106,5 +107,15 @@ export function adminRoutes(app: FastifyInstance, ctx: Ctx) {
     const { reason } = parse(z.object({ reason: z.string().trim().min(3).max(500) }), req.body);
     await rejectRotation(ctx, admin, id, reason);
     return { ok: true };
+  });
+
+  // PDPA account deletion requests (read-only: the worker decides and executes)
+  app.get("/api/admin/deletion-requests", async (req) => {
+    await requireAdminAccess(ctx, req, "read");
+    const { status } = parse(
+      z.object({ status: z.enum(["PENDING", "CANCELLED", "REFUSED", "COMPLETED"]).default("PENDING") }),
+      req.query,
+    );
+    return listDeletionRequests(ctx, status);
   });
 }

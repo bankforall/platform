@@ -6,6 +6,7 @@ import { indexRange } from "./services/ingest.js";
 import { cleanup, reconcileIntents, runKeeper, runReminders, runSlipVerification } from "./services/keeper.js";
 import { pushPending } from "./services/notify.js";
 import { executeDueRotations } from "./services/rotation.js";
+import { executeDueDeletions, purgeExpiredSlips } from "./services/privacy.js";
 import { checkGas } from "./gas.js";
 import { checkIndexerLag, checkSigner, FailureTracker, heartbeat } from "./ops.js";
 
@@ -46,6 +47,8 @@ const jobs: [string, (ctx: Ctx) => Promise<unknown>][] = [
   ["push", pushPending],
   ["cleanup", cleanup],
   ["rotations", executeDueRotations],
+  ["deletions", executeDueDeletions],
+  ["slip-retention", purgeExpiredSlips],
 ];
 
 const failures = new FailureTracker(config.ALERT_JOB_FAILURES);

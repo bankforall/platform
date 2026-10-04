@@ -7,6 +7,7 @@ import { ApiError, errorMessage } from "@/api/client";
 import { useMe } from "@/hooks/session";
 import { Header, Screen } from "@/components/layout";
 import { KeyRotationNotice } from "@/components/KeyRotationNotice";
+import { MyData } from "@/components/MyData";
 import { useToast } from "@/components/overlay";
 import { Avatar, Button, Card, Chip, Field, KeyValue, SectionTitle } from "@/components/ui";
 import { shortAddress } from "@/lib/format";
@@ -184,9 +185,12 @@ export default function Profile() {
           </p>
         </Card>
 
+        <SectionTitle>ข้อมูลส่วนบุคคลของฉัน</SectionTitle>
+        <MyData me={me} />
+
         {me.role === "ADMIN" && (
           <Link to="/admin" className="mt-4 block rounded-2xl bg-ink p-4 text-center font-semibold text-white">
-            ระบบหลังบ้าน (ตรวจสอบตัวตน · คำขอเปลี่ยนกุญแจ)
+            ระบบหลังบ้าน (ตรวจสอบตัวตน · คำขอเปลี่ยนกุญแจ · คำขอลบบัญชี)
           </Link>
         )}
 

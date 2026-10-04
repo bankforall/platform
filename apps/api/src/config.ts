@@ -112,6 +112,14 @@ const schema = z.object({
     .transform((v) => (v === "" ? undefined : v === "true" || v === "1")),
   /** Seconds an admin session stays "admin-verified" after a passkey step-up. */
   ADMIN_STEPUP_TTL: z.coerce.number().int().min(60).max(3600).default(900),
+
+  // ── branding & privacy (PDPA) ──
+  /** Product name in user-visible messages (SMS, evidence report). The legal name is pending review. */
+  APP_NAME: z.string().trim().default("").transform((v) => v || "Bank For All"),
+  /** Cooling-off period between an account deletion request and the anonymisation (user can cancel). */
+  ACCOUNT_DELETION_DELAY_DAYS: z.coerce.number().min(0).default(7),
+  /** How long slips of a deleted account are kept as evidence for the other members after the circle ended. */
+  DELETED_SLIP_RETENTION_DAYS: z.coerce.number().int().min(0).default(3650),
 });
 
 type Parsed = z.infer<typeof schema>;

@@ -13,7 +13,9 @@ import {
 import { requireUser } from "../auth/session.js";
 import type { Ctx } from "../context.js";
 import { badRequest, conflict, notFound, parse } from "../errors.js";
-import { checkImage, submitKyc, type Upload } from "../services/kyc.js";
+import { checkImage, sniffImage, submitKyc, type Upload } from "../services/kyc.js";
+import { cancelDeletion, exportUserData, requestDeletion } from "../services/privacy.js";
+import { z } from "zod";
 import { cancelRotation, requestRotation } from "../services/rotation.js";
 import { meView, sendOtp, verifyOtp, verifyStepUp } from "../services/users.js";
 import { notify } from "../services/notify.js";
@@ -163,6 +165,46 @@ export function meRoutes(app: FastifyInstance, ctx: Ctx) {
       selfie: checkImage(files.selfie, "รูปถ่ายคู่บัตร"),
     });
     return meView(ctx, (await ctx.db.user.findUnique({ where: { id: user.id } }))!);
+  });
+
+  // ─────────────── PDPA rights ───────────────
+
+  /** Download of all personal data held about the user (right of access / portability). */
+  app.get("/api/me/export", { config: { rateLimit: { max: 1, timeWindow: "1 hour" } } }, async (req, reply) => {
+    const user = await requireUser(ctx, req);
+    const data = await exportUserData(ctx, user);
+    const date = new Date().toISOString().slice(0, 10);
+    return reply
+      .type("application/json; charset=utf-8")
+      .header("Content-Disposition", `attachment; filename="my-data-${date}.json"`)
+      .header("Cache-Control", "private, no-store")
+      .send(JSON.stringify(data, null, 2));
+  });
+
+  /** The user's own KYC images (linked from the export). */
+  app.get("/api/me/kyc/:id/:file", async (req, reply) => {
+    const user = await requireUser(ctx, req);
+    const { id, file } = parse(z.object({ id: z.string(), file: z.enum(["idCard", "selfie"]) }), req.params);
+    const k = await ctx.db.kycSubmission.findUnique({ where: { id } });
+    if (!k || k.userId !== user.id || k.purgedAt) throw notFound();
+    const data = await ctx.storage.get(file === "idCard" ? k.idCardKey : k.selfieKey);
+    return reply
+      .type(sniffImage(data) ?? "application/octet-stream")
+      .header("Cache-Control", "private, no-store")
+      .send(data);
+  });
+
+  /** Account deletion: refused while others rely on the user; executed by the worker after a cooling-off period. */
+  app.post("/api/me/deletion-request", async (req) => {
+    const user = await requireUser(ctx, req);
+    await requestDeletion(ctx, user);
+    return meView(ctx, user);
+  });
+
+  app.delete("/api/me/deletion-request", async (req) => {
+    const user = await requireUser(ctx, req);
+    await cancelDeletion(ctx, user);
+    return meView(ctx, user);
   });
 
   app.get("/api/me/notifications", async (req) => {

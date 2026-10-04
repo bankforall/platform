@@ -1,4 +1,5 @@
 import { useNavigate } from "react-router";
+import { APP_NAME } from "@/lib/brand";
 import { CircleType } from "@bankforall/shared";
 import { api } from "@/api/endpoints";
 import { useIntent } from "@/hooks/useIntent";
@@ -17,7 +18,7 @@ function HostPanel({ circle }: TabProps) {
 
   const share = async () => {
     if (!link) return;
-    const text = `เข้าร่วมวงแชร์ "${circle.name}" ใน Bank For All\nรหัสเชิญ: ${circle.inviteCode}\n${link}`;
+    const text = `เข้าร่วมวงแชร์ "${circle.name}" ใน ${APP_NAME}\nรหัสเชิญ: ${circle.inviteCode}\n${link}`;
     try {
       if (navigator.share) await navigator.share({ title: circle.name, text, url: link });
       else {

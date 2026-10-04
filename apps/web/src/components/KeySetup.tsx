@@ -1,4 +1,6 @@
 import { useMemo, useState, type ReactNode } from "react";
+import { APP_NAME } from "@/lib/brand";
+import { downloadFile } from "@/lib/download";
 import type { WalletBackup } from "@bankforall/shared";
 import { errorMessage } from "@/api/client";
 import { PinPad, useToast } from "@/components/overlay";
@@ -64,13 +66,8 @@ export function KeySetup({
   };
 
   const download = () => {
-    const text = `Bank For All — รหัสกู้คืนบัญชี\n\n${code}\n\nเก็บไว้ในที่ปลอดภัย ห้ามส่งให้ผู้อื่น ใช้เมื่อเปลี่ยนหรือทำโทรศัพท์หาย\n`;
-    const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "bankforall-recovery-code.txt";
-    a.click();
-    URL.revokeObjectURL(url);
+    const text = `${APP_NAME} — รหัสกู้คืนบัญชี\n\n${code}\n\nเก็บไว้ในที่ปลอดภัย ห้ามส่งให้ผู้อื่น ใช้เมื่อเปลี่ยนหรือทำโทรศัพท์หาย\n`;
+    downloadFile("bankforall-recovery-code.txt", text, "text/plain;charset=utf-8");
   };
 
   if (sub === "intro") return <>{intro(() => setSub("pin"))}</>;

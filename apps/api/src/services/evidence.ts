@@ -55,7 +55,7 @@ th{background:#F7F7F7}code{font-size:11px;word-break:break-all}.muted{color:#666
 </style></head><body>
 <button onclick="window.print()">พิมพ์ / บันทึกเป็น PDF</button>
 <h1>รายงานหลักฐานวงแชร์ "${esc(c.name)}"</h1>
-<p class="muted">ออกโดย Bank For All เมื่อ ${esc(new Date().toLocaleString("th-TH", { timeZone: "Asia/Bangkok" }))} สำหรับ ${esc(user.displayName)}<br>
+<p class="muted">ออกโดย ${esc(ctx.config.APP_NAME)} เมื่อ ${esc(new Date().toLocaleString("th-TH", { timeZone: "Asia/Bangkok" }))} สำหรับ ${esc(user.displayName)}<br>
 ข้อมูลทุกรายการด้านล่างถูกบันทึกบนเครือข่ายสาธารณะ (chain id ${ctx.chain.chainId}) ที่สัญญา <code>${esc(c.address)}</code>
 และตรวจสอบได้ด้วยเลขอ้างอิงธุรกรรม (tx hash) ของแต่ละรายการ</p>
 

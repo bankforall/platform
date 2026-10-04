@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { act, render, screen, fireEvent, within } from "@testing-library/react";
 import { verifyMessage } from "viem";
 import { MemoryRouter } from "react-router";
@@ -8,6 +8,7 @@ import {
   circleSummary,
   keyRotationMessage,
   meResponse,
+  TERMS_VERSION,
   walletProofMessage,
   type CircleDetail,
   type MeResponse,
@@ -75,7 +76,7 @@ function meDefaults() {
     phone: "0812345678",
     phoneVerified: true,
     promptPayId: "0812345678",
-    consentVersion: "2026-10-01",
+    consentVersion: TERMS_VERSION,
     walletAddress: ME,
     hasWalletBackup: true,
     kycStatus: "APPROVED",
@@ -84,6 +85,7 @@ function meDefaults() {
     onboarding: [],
     outstandingDefaults: 0,
     pendingKeyRotation: null,
+    deletionRequest: null,
   };
 }
 
@@ -232,6 +234,7 @@ function routes(url: string, init?: RequestInit): Promise<Response> {
   if (path.startsWith("/admin/kyc")) return json([]);
   if (path.startsWith("/admin/key-rotations")) return json([]);
   if (path === "/admin/security") return json(securityView());
+  if (path.startsWith("/admin/deletion-requests")) return json([]);
   return Promise.resolve(new Response(JSON.stringify({ error: { code: "NOT_FOUND", message: "ไม่พบ" } }), { status: 404 }));
 }
 
@@ -654,6 +657,118 @@ describe("screens render with contract-valid data", () => {
     expect(await screen.findByRole("button", { name: "ลบพาสคีย์ มือถือ" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "ยืนยันตอนนี้" }));
     expect(await screen.findByText("ยกเลิกการใช้พาสคีย์ หรือหมดเวลา กรุณาลองใหม่")).toBeInTheDocument();
+  });
+
+  it.each([
+    ["/terms", "ข้อกำหนดการใช้บริการ"],
+    ["/privacy", "นโยบายความเป็นส่วนตัว"],
+  ])("%s renders the bundled draft legal document", async (path, title) => {
+    const { container } = renderAt(path);
+    expect(await screen.findByRole("heading", { level: 1, name: title })).toBeInTheDocument();
+    expect(screen.getByText("ร่าง — ต้องให้นักกฎหมายตรวจก่อนใช้งานจริง")).toBeInTheDocument();
+    expect(container.textContent).toContain("Bank For All");
+    expect(container.textContent).not.toContain("{{APP_NAME}}");
+    // placeholders the company still has to fill are highlighted
+    expect(container.querySelectorAll("mark").length).toBeGreaterThan(0);
+  });
+
+  it("profile downloads my data as a JSON file", async () => {
+    const saved: Blob[] = [];
+    // jsdom has no object URLs; stub them for this test only
+    const original = { create: URL.createObjectURL, revoke: URL.revokeObjectURL };
+    URL.createObjectURL = (b: Blob) => (saved.push(b), "blob:x");
+    URL.revokeObjectURL = () => {};
+    onTestFinished(() => void Object.assign(URL, { createObjectURL: original.create, revokeObjectURL: original.revoke }));
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    extraRoutes = (path) => (path === "/me/export" ? json({ profile: { id: "u1", phone: "0812345678" } }) : null);
+    renderAt("/profile");
+    expect(await screen.findByRole("heading", { name: "ข้อมูลส่วนบุคคลของฉัน" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "ดาวน์โหลดข้อมูลของฉัน" }));
+    expect(await screen.findByText("ดาวน์โหลดข้อมูลแล้ว")).toBeInTheDocument();
+    expect(click).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(await saved[0]!.text())).toEqual({ profile: { id: "u1", phone: "0812345678" } });
+    expect(screen.getByRole("link", { name: "นโยบายความเป็นส่วนตัว" })).toHaveAttribute("href", "/privacy");
+  });
+
+  it("profile requests account deletion after confirming, then can cancel it", async () => {
+    const calls: string[] = [];
+    const executeAfter = new Date(Date.now() + 7 * 86400_000).toISOString();
+    extraRoutes = (path, init) => {
+      if (path !== "/me/deletion-request") return null;
+      calls.push(init!.method!);
+      meOverrides =
+        init!.method === "POST"
+          ? { deletionRequest: { id: "d1", status: "PENDING", executeAfter, reason: null, createdAt: new Date().toISOString() } }
+          : {};
+      return json(me());
+    };
+    renderAt("/profile");
+    fireEvent.click(await screen.findByRole("button", { name: "ขอลบบัญชี" }));
+    const dialog = await screen.findByRole("dialog", { name: "ยืนยันการขอลบบัญชี" });
+    expect(dialog).toHaveTextContent("บันทึกบนเครือข่ายสาธารณะ");
+    expect(calls).toEqual([]);
+    fireEvent.click(screen.getByRole("button", { name: "ยืนยันขอลบบัญชี" }));
+    expect(await screen.findByText("มีคำขอลบบัญชีอยู่")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "ยกเลิกคำขอลบบัญชี" }));
+    expect(await screen.findByRole("button", { name: "ขอลบบัญชี" })).toBeInTheDocument();
+    expect(calls).toEqual(["POST", "DELETE"]);
+  });
+
+  it("profile explains why account deletion is refused", async () => {
+    extraRoutes = (path) =>
+      path === "/me/deletion-request"
+        ? Promise.resolve(
+            new Response(
+              JSON.stringify({ error: { code: "DELETION_BLOCKED", message: "คุณยังเป็นสมาชิกของวงแชร์ที่กำลังดำเนินอยู่ 1 วง" } }),
+              { status: 409 },
+            ),
+          )
+        : null;
+    renderAt("/profile");
+    fireEvent.click(await screen.findByRole("button", { name: "ขอลบบัญชี" }));
+    fireEvent.click(await screen.findByRole("button", { name: "ยืนยันขอลบบัญชี" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("คุณยังเป็นสมาชิกของวงแชร์ที่กำลังดำเนินอยู่ 1 วง");
+  });
+
+  it("profile shows a refused deletion request", async () => {
+    meOverrides = {
+      deletionRequest: { id: "d1", status: "REFUSED", executeAfter: new Date().toISOString(), reason: "มีหนี้ผิดนัดค้างอยู่", createdAt: new Date().toISOString() },
+    };
+    renderAt("/profile");
+    expect(await screen.findByText(/คำขอลบบัญชีครั้งล่าสุดไม่สำเร็จ: มีหนี้ผิดนัดค้างอยู่/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "ขอลบบัญชี" })).toBeInTheDocument();
+  });
+
+  it("asks existing users to accept updated terms", async () => {
+    meOverrides = { consentVersion: "2026-10-01", onboarding: ["consent"] };
+    renderAt("/onboarding");
+    expect(await screen.findByText(/มีการปรับปรุง กรุณาอ่านและยอมรับฉบับใหม่/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "อ่านข้อกำหนดการใช้บริการฉบับเต็ม" })).toHaveAttribute("href", "/terms");
+    expect(screen.getByRole("link", { name: "อ่านนโยบายความเป็นส่วนตัวฉบับเต็ม" })).toHaveAttribute("href", "/privacy");
+    expect(screen.getByText(`ฉบับ ${TERMS_VERSION}`)).toBeInTheDocument();
+    expect(screen.getByText(/ไม่ต้องการยอมรับฉบับใหม่/)).toBeInTheDocument();
+  });
+
+  it("admin sees account deletion requests", async () => {
+    extraRoutes = (path) =>
+      path === "/admin/deletion-requests"
+        ? json([
+            {
+              id: "d1",
+              userId: "u9",
+              displayName: "ขอลบ",
+              status: "PENDING",
+              executeAfter: new Date().toISOString(),
+              reason: null,
+              createdAt: new Date().toISOString(),
+              completedAt: null,
+            },
+          ])
+        : null;
+    renderAt("/admin");
+    expect(await screen.findByRole("heading", { name: "คำขอลบบัญชี (PDPA)" })).toBeInTheDocument();
+    expect(await screen.findByText("ขอลบ")).toBeInTheDocument();
   });
 
   afterEach(() => {

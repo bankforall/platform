@@ -10,7 +10,7 @@ import type { FastifyInstance } from "fastify";
 import {
   bidHash,
   CircleType,
-  CONSENT_VERSION,
+  TERMS_VERSION,
   forwardRequestTypes,
   keyRotationMessage,
   walletProofMessage,
@@ -102,7 +102,7 @@ class Client {
     const code = sms.at(-1)!.text.match(/\d{6}/)![0];
     await this.req("POST", "/api/me/phone/verify", { code });
     await this.req("PUT", "/api/me/promptpay", { promptPayId: phone });
-    await this.req("POST", "/api/me/consent", { version: CONSENT_VERSION });
+    await this.req("POST", "/api/me/consent", { version: TERMS_VERSION });
     await this.registerWallet();
     await this.multipart(
       "/api/me/kyc",

@@ -5,6 +5,7 @@ name: Release
 # The web image pins the chain and contracts it will sign for: set the repository variables
 # VITE_CHAIN_ID, VITE_FORWARDER_ADDRESS and VITE_FACTORY_ADDRESS (Settings → Variables) after
 # deploying the contracts; without them only api/migrate are released.
+# Optional: VITE_APP_NAME / VITE_APP_SHORT_NAME set the user-visible product name (default "Bank For All").
 on:
   push:
     tags: ["v*.*.*"]
@@ -92,6 +93,8 @@ jobs:
             VITE_CHAIN_ID=${{ vars.VITE_CHAIN_ID }}
             VITE_FORWARDER_ADDRESS=${{ vars.VITE_FORWARDER_ADDRESS }}
             VITE_FACTORY_ADDRESS=${{ vars.VITE_FACTORY_ADDRESS }}
+            VITE_APP_NAME=${{ vars.VITE_APP_NAME }}
+            VITE_APP_SHORT_NAME=${{ vars.VITE_APP_SHORT_NAME }}
           sbom: true
           provenance: mode=max
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2

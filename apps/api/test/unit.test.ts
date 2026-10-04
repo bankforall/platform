@@ -101,6 +101,13 @@ describe("config", () => {
     );
   });
 
+  it("defaults the user-visible product name and privacy periods", () => {
+    const c = loadConfig("api", { ...base, APP_NAME: "" });
+    expect(c.APP_NAME).toBe("Bank For All");
+    expect(c.ACCOUNT_DELETION_DELAY_DAYS).toBe(7);
+    expect(loadConfig("api", { ...base, APP_NAME: " วงดี " }).APP_NAME).toBe("วงดี");
+  });
+
   it("refuses reused keys", () => {
     expect(() => loadConfig("api", { ...base, KEEPER_PRIVATE_KEY: key(1) })).toThrow(/must differ/);
   });

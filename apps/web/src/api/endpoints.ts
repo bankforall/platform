@@ -1,9 +1,10 @@
 import { z } from "zod";
 import {
-  CONSENT_VERSION,
   adminSecurityView,
   adminStepUpResponse,
   webauthnOptions,
+  TERMS_VERSION,
+  adminDeletionRequestView,
   circleDetail,
   circleSummary,
   intentResponse,
@@ -33,6 +34,7 @@ export type NotificationView = z.infer<typeof notificationView>;
 export type KycReviewItem = z.infer<typeof kycReviewItem>;
 export type PromptPayQr = z.infer<typeof promptPayQrResponse>;
 export type KeyRotationStatus = "PENDING" | "APPROVED";
+export type DeletionRequestStatus = "PENDING" | "CANCELLED" | "REFUSED" | "COMPLETED";
 const otpResponse = z.object({ ok: z.boolean(), devCode: z.string().optional() });
 
 /** Body for `POST /circles` — amounts as strings, durations in seconds. */
@@ -71,7 +73,7 @@ export const api = {
   /** `code` (step-up OTP) is required when replacing an existing PromptPay ID. */
   setPromptPay: (promptPayId: string, code?: string) =>
     request("/me/promptpay", { method: "PUT", body: { promptPayId, code } }),
-  consent: () => request("/me/consent", { body: { version: CONSENT_VERSION } }),
+  consent: () => request("/me/consent", { body: { version: TERMS_VERSION } }),
   /** `proof` = personal_sign of `walletProofMessage(me.id, address)` with the device key. */
   registerWallet: (address: string, proof: string, backup: WalletBackup) =>
     request("/me/wallet", { method: "PUT", body: { address, proof, backup } }),
@@ -83,6 +85,11 @@ export const api = {
   submitKyc: (form: FormData) => request("/me/kyc", { form }),
   notifications: () => request("/me/notifications", { schema: z.array(notificationView) }),
   readNotifications: () => request("/me/notifications/read", { method: "POST" }),
+  /** All personal data held about me, as JSON (PDPA; at most once an hour). */
+  exportData: () => request("/me/export"),
+  /** Asks for account deletion; refused while I am in an unfinished circle or owe defaults. */
+  requestDeletion: () => request("/me/deletion-request", { method: "POST", schema: meResponse }),
+  cancelDeletion: () => request("/me/deletion-request", { method: "DELETE", schema: meResponse }),
 
   // circles
   myCircles: () => request("/circles", { schema: z.array(circleSummary) }),
@@ -140,6 +147,8 @@ export const api = {
   adminStepUpOptions: () => request("/admin/step-up/options", { method: "POST", schema: webauthnOptions }),
   adminStepUp: (response: Record<string, unknown>) =>
     request("/admin/step-up/verify", { body: { response }, schema: adminStepUpResponse }),
+  deletionRequests: (status: DeletionRequestStatus = "PENDING") =>
+    request(`/admin/deletion-requests?status=${status}`, { schema: z.array(adminDeletionRequestView) }),
 };
 
 export const qk = {
@@ -153,4 +162,5 @@ export const qk = {
   kyc: (status: string) => ["admin", "kyc", status] as const,
   keyRotations: (status: string) => ["admin", "key-rotations", status] as const,
   adminSecurity: ["admin", "security"] as const,
+  deletionRequests: (status: string) => ["admin", "deletion-requests", status] as const,
 };

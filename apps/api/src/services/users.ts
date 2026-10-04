@@ -1,8 +1,9 @@
 import type { OtpPurpose, User } from "../db.js";
 import { pendingRotationView } from "./rotation.js";
 import { outstandingDefaults } from "./reputation.js";
+import { deletionView } from "./privacy.js";
 import type { MeResponse } from "@bankforall/shared";
-import { CONSENT_VERSION } from "@bankforall/shared";
+import { TERMS_VERSION } from "@bankforall/shared";
 import type { Ctx } from "../context.js";
 import { hmac, randomDigits, safeEqual } from "../crypto.js";
 import { badRequest, conflict, AppError } from "../errors.js";
@@ -13,19 +14,20 @@ export function onboardingSteps(u: User): Step[] {
   const steps: Step[] = [];
   if (!u.phoneVerifiedAt) steps.push("phone");
   if (!u.promptPayId) steps.push("promptpay");
-  if (u.consentVersion !== CONSENT_VERSION) steps.push("consent");
+  if (u.consentVersion !== TERMS_VERSION) steps.push("consent");
   if (!u.walletAddress) steps.push("wallet");
   if (u.kycStatus !== "APPROVED") steps.push("kyc");
   return steps;
 }
 
 export async function meView(ctx: Ctx, u: User): Promise<MeResponse> {
-  const [lastKyc, rotation] = await Promise.all([
+  const [lastKyc, rotation, deletion] = await Promise.all([
     ctx.db.kycSubmission.findFirst({ where: { userId: u.id }, orderBy: { createdAt: "desc" } }),
     ctx.db.keyRotationRequest.findFirst({
       where: { userId: u.id, status: { in: ["PENDING", "APPROVED"] } },
       orderBy: { createdAt: "desc" },
     }),
+    ctx.db.deletionRequest.findFirst({ where: { userId: u.id }, orderBy: { createdAt: "desc" } }),
   ]);
   return {
     id: u.id,
@@ -44,6 +46,7 @@ export async function meView(ctx: Ctx, u: User): Promise<MeResponse> {
     onboarding: onboardingSteps(u),
     outstandingDefaults: await outstandingDefaults(ctx, u.id, u.walletAddress),
     pendingKeyRotation: pendingRotationView(rotation),
+    deletionRequest: deletion && (deletion.status === "PENDING" || deletion.status === "REFUSED") ? deletionView(deletion) : null,
   };
 }
 
@@ -79,7 +82,7 @@ export async function sendOtp(
       expiresAt: new Date(Date.now() + OTP_TTL_MS),
     },
   });
-  await ctx.sms.send(phone, `รหัสยืนยัน Bank For All: ${code} (หมดอายุใน 5 นาที) ห้ามบอกรหัสนี้กับผู้อื่น`);
+  await ctx.sms.send(phone, `รหัสยืนยัน ${ctx.config.APP_NAME}: ${code} (หมดอายุใน 5 นาที) ห้ามบอกรหัสนี้กับผู้อื่น`);
   return ctx.config.NODE_ENV !== "production" && ctx.config.SMS_PROVIDER === "console" ? code : undefined;
 }
 

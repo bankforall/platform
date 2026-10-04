@@ -61,6 +61,13 @@ enum RotationStatus {
   FAILED
 }
 
+enum DeletionStatus {
+  PENDING
+  CANCELLED
+  REFUSED
+  COMPLETED
+}
+
 enum IntentStatus {
   PREPARED
   SUBMITTED
@@ -90,6 +97,8 @@ model User {
   reputationBase  Int       @default(100)
   /// Bumped to revoke all sessions.
   sessionVersion  Int       @default(0)
+  /// Set when the account was anonymised on the user's request (PDPA); the row stays as a tombstone.
+  deletedAt       DateTime?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
@@ -103,6 +112,7 @@ model User {
   disputes       Dispute[]
   keyRotations   KeyRotationRequest[]
   adminPasskeys  AdminPasskey[]
+  deletions      DeletionRequest[]
 }
 
 /// WebAuthn passkeys of an admin: second factor on top of LINE login for admin powers.
@@ -139,6 +149,8 @@ model KycSubmission {
   reviewerId      String?
   createdAt       DateTime  @default(now())
   reviewedAt      DateTime?
+  /// Files deleted and personal fields replaced with tombstones (account deletion).
+  purgedAt        DateTime?
 
   @@index([status, createdAt])
   @@index([nationalIdHash])
@@ -276,6 +288,8 @@ model Slip {
   verifyAttempts Int        @default(0)
   verifyAfter    DateTime?
   attestTx       String?
+  /// File deleted after the retention period of a deleted account; sha256 stays (it is on-chain).
+  purgedAt       DateTime?
   createdAt      DateTime   @default(now())
 
   @@index([circleId, round])
@@ -391,6 +405,25 @@ model KeyRotationRequest {
 
   @@index([status, executeAfter])
   @@index([userId, status])
+}
+
+/// Account deletion (PDPA right to erasure). Refused while other members rely on the user (an
+/// unfinished circle or unpaid defaults); otherwise the worker anonymises the account after a
+/// cooling-off period during which the user can cancel. See services/privacy.ts.
+model DeletionRequest {
+  id           String         @id @default(cuid())
+  userId       String
+  user         User           @relation(fields: [userId], references: [id])
+  status       DeletionStatus @default(PENDING)
+  executeAfter DateTime
+  /// Why the worker refused (Thai, shown to the user).
+  reason       String?
+  completedAt  DateTime?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  @@index([status, executeAfter])
+  @@index([userId, createdAt])
 }
 
 /// Append-only record of privileged actions (KYC decisions, key rotations).
