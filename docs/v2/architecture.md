@@ -82,11 +82,15 @@ API ของ contract อ่านได้จาก `packages/shared/src/abi.t
 
 1. **gas** — ตรวจยอด ETH ของ relayer/keeper/attester
 2. **index** — `getLogs` จาก cursor (factory ก่อน แล้ว circles) → `ingestLogs`
+   - **lag** / **signer** — แจ้งเตือนถ้า indexer ตามหลัง head เกิน `INDEXER_LAG_ALERT_BLOCKS` หรือ signer ไม่ตอบ `GET /health`
 3. **reconcile** — ปิด intent ที่ request หลุดก่อนได้ receipt
 4. **keeper** — ใช้เวลาของ chain: เปิดซอง → `closeBidding` → `markDefault` หลังพ้นผ่อนผัน → `nextRound`; simulate ก่อนส่งทุกครั้ง
-5. **slips** — ส่งสลิปให้ verifier (pluggable) ถ้าผ่าน → `attestSlip`
+5. **slips** — ส่งสลิปให้ verifier (`none` หรือ `slipok`; ส่งเฉพาะรูป + ยอด) ถ้าผ่าน → `attestSlip`; error ของผู้ให้บริการ → คง `PENDING` แล้วลองใหม่แบบ backoff (`verifyAttempts`/`verifyAfter`) ครบจำนวน → `SKIPPED` + แจ้งเตือน
 6. **reminders** — แจ้งเตือน D-2 / D-0 / เลยกำหนด (กันซ้ำด้วย `dedupeKey`)
 7. **push** — ส่ง notification ไป LINE
+
+job ที่ล้มติดกัน `ALERT_JOB_FAILURES` รอบจะถูกแจ้งเตือน; loop ที่สำเร็จครบทุก job จะ ping `HEARTBEAT_URL` (uptime monitor ภายนอกแจ้งเมื่อ ping หยุด)
+ทุกเหตุการณ์ `ALERT:` ผ่าน `alert()` (`apps/api/src/alert.ts`): log + webhook (Slack/Discord/JSON) + กลุ่ม LINE, กันซ้ำต่อ key ด้วย Redis และตัดข้อมูลลับ/ส่วนบุคคลก่อนส่ง — ดู [deployment.md §4.1](./deployment.md#41-การแจ้งเตือน-alerting-และ-uptime)
 
 ## 6. ความปลอดภัย
 
@@ -114,6 +118,6 @@ API ของ contract อ่านได้จาก `packages/shared/src/abi.t
 
 ## 8. ข้อจำกัดที่รู้แล้ว
 
-- การตรวจสลิปอัตโนมัติยังไม่มีผู้ให้บริการ (`SLIP_VERIFIER=none`) → ผู้รับยืนยันการรับเงินเองบน chain (ซึ่งเป็นหลักฐานที่แข็งที่สุดอยู่แล้ว)
+- การตรวจสลิปอัตโนมัติเป็นทางเลือก (`SLIP_VERIFIER=slipok`); ค่าเริ่ม `none` → ผู้รับยืนยันการรับเงินเองบน chain (ซึ่งเป็นหลักฐานที่แข็งที่สุดอยู่แล้ว) — สลิปที่ SlipOK เทียบผู้รับไม่ได้ (ไม่แสดง PromptPay) ก็ใช้วิธีนี้
 - ผู้ผิดนัดยังคงเป็นผู้รับคนสุดท้าย — ต้องตัดสินใจกติกาการชดเชย (ดู [rules-spec.md](./rules-spec.md#7-คำถามที่ยังเปิดอยู่))
 - Single VPS: เหมาะกับ pilot; ขยายได้โดยแยก Postgres/Redis/S3 เป็น managed service และรัน API หลาย replica (stateless)

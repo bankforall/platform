@@ -240,22 +240,26 @@ model Payment {
 }
 
 model Slip {
-  id           String     @id @default(cuid())
-  circleId     String
-  circle       Circle     @relation(fields: [circleId], references: [id])
-  round        Int
-  userId       String
-  user         User       @relation(fields: [userId], references: [id])
-  payer        String
-  storageKey   String
-  contentType  String
-  sha256       String
-  verify       SlipVerify @default(PENDING)
-  verifyDetail Json?
-  attestTx     String?
-  createdAt    DateTime   @default(now())
+  id             String     @id @default(cuid())
+  circleId       String
+  circle         Circle     @relation(fields: [circleId], references: [id])
+  round          Int
+  userId         String
+  user           User       @relation(fields: [userId], references: [id])
+  payer          String
+  storageKey     String
+  contentType    String
+  sha256         String
+  verify         SlipVerify @default(PENDING)
+  verifyDetail   Json?
+  /// Provider/network errors so far; the worker retries with backoff, then gives up (SKIPPED + alert).
+  verifyAttempts Int        @default(0)
+  verifyAfter    DateTime?
+  attestTx       String?
+  createdAt      DateTime   @default(now())
 
   @@index([circleId, round])
+  @@index([verify, verifyAfter])
 }
 
 /// Sealed-bid preimages, encrypted at rest, so the keeper can reveal on time.
