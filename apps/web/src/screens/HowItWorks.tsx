@@ -1,4 +1,5 @@
 import { Header, Screen } from "@/components/layout";
+import { APP_NAME } from "@/lib/brand";
 import { Card, LinkButton } from "@/components/ui";
 
 const steps = [
@@ -57,7 +58,7 @@ export default function HowItWorks() {
         </Card>
         <Card className="bg-warn-soft">
           <p className="text-sm text-ink">
-            <strong>สำคัญ:</strong> Bank For All เป็นเพียงเครื่องมือจดบันทึกและบังคับกติกา บริษัทไม่ใช่นายวงและไม่ถือเงินของสมาชิก
+            <strong>สำคัญ:</strong> {APP_NAME} เป็นเพียงเครื่องมือจดบันทึกและบังคับกติกา บริษัทไม่ใช่นายวงและไม่ถือเงินของสมาชิก
             ควรเล่นแชร์กับคนที่คุณรู้จักและไว้ใจเท่านั้น
           </p>
         </Card>

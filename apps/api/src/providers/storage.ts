@@ -1,5 +1,6 @@
 import {
   CreateBucketCommand,
+  DeleteObjectCommand,
   GetObjectCommand,
   HeadBucketCommand,
   PutObjectCommand,
@@ -53,6 +54,12 @@ export class Storage {
     const res = await this.s3.send(new GetObjectCommand({ Bucket: this.config.S3_BUCKET, Key: key }));
     const bytes = await res.Body!.transformToByteArray();
     return this.enc.decrypt(Buffer.from(bytes));
+  }
+
+  /** Deletes an object (idempotent: S3 reports success for a missing key). */
+  async delete(key: string): Promise<void> {
+    if (!key) return;
+    await this.s3.send(new DeleteObjectCommand({ Bucket: this.config.S3_BUCKET, Key: key }));
   }
 
   async ping(): Promise<void> {

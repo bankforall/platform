@@ -18,49 +18,72 @@ function requireChainPins(): Plugin {
   };
 }
 
-export default defineConfig({
-  resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
-  plugins: [
-    requireChainPins(),
-    react(),
-    tailwindcss(),
-    VitePWA({
-      registerType: "autoUpdate",
-      includeAssets: ["icon.svg"],
-      manifest: {
-        name: "Bank For All — วงแชร์โปร่งใส",
-        short_name: "Bank For All",
-        description: "จัดการวงแชร์ (เปียแชร์) อย่างโปร่งใส บันทึกถาวร ตรวจสอบได้",
-        lang: "th",
-        theme_color: "#7165E3",
-        background_color: "#7165E3",
-        display: "standalone",
-        start_url: "/",
-        icons: [
-          { src: "/icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any maskable" },
-        ],
-      },
-      workbox: {
-        navigateFallback: "/index.html",
-        navigateFallbackDenylist: [/^\/api\//],
-        runtimeCaching: [],
-      },
-    }),
-  ],
-  server: {
-    port: 5173,
-    // API_PROXY_TARGET lets you point the dev server at another API instance (e.g. for E2E).
-    proxy: { "/api": { target: process.env.API_PROXY_TARGET ?? "http://localhost:4000", changeOrigin: false } },
-  },
-  test: {
-    environment: "jsdom",
-    setupFiles: ["./src/test-setup.ts"],
-    // Build-time chain pins, as a production build would have them (see src/wallet/chain.ts).
-    env: {
-      VITE_CHAIN_ID: "84532",
-      VITE_FORWARDER_ADDRESS: "0x00000000000000000000000000000000000000f0",
-      VITE_FACTORY_ADDRESS: "0x00000000000000000000000000000000000000fa",
+const DEFAULT_APP_NAME = "Bank For All";
+const escapeHtml = (s: string) =>
+  s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+
+/** Product name from VITE_APP_NAME (pending legal review); also used by src/lib/brand.ts at runtime. */
+function appName(mode: string) {
+  const env = { ...loadEnv(mode, process.cwd(), "VITE_"), ...process.env };
+  const name = env.VITE_APP_NAME?.trim() || DEFAULT_APP_NAME;
+  return { name, short: env.VITE_APP_SHORT_NAME?.trim() || name };
+}
+
+/** Replaces %APP_NAME% in index.html. */
+function brandHtml(name: string): Plugin {
+  return {
+    name: "bankforall-brand-html",
+    transformIndexHtml: { order: "pre", handler: (html) => html.replaceAll("%APP_NAME%", escapeHtml(name)) },
+  };
+}
+
+export default defineConfig(({ mode }) => {
+  const brand = appName(mode);
+  return {
+    resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
+    plugins: [
+      requireChainPins(),
+      brandHtml(brand.name),
+      react(),
+      tailwindcss(),
+      VitePWA({
+        registerType: "autoUpdate",
+        includeAssets: ["icon.svg"],
+        manifest: {
+          name: `${brand.name} — วงแชร์โปร่งใส`,
+          short_name: brand.short,
+          description: "จัดการวงแชร์ (เปียแชร์) อย่างโปร่งใส บันทึกถาวร ตรวจสอบได้",
+          lang: "th",
+          theme_color: "#7165E3",
+          background_color: "#7165E3",
+          display: "standalone",
+          start_url: "/",
+          icons: [
+            { src: "/icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any maskable" },
+          ],
+        },
+        workbox: {
+          navigateFallback: "/index.html",
+          navigateFallbackDenylist: [/^\/api\//],
+          runtimeCaching: [],
+        },
+      }),
+    ],
+    server: {
+      port: 5173,
+      // API_PROXY_TARGET lets you point the dev server at another API instance (e.g. for E2E).
+      proxy: { "/api": { target: process.env.API_PROXY_TARGET ?? "http://localhost:4000", changeOrigin: false } },
     },
-    testTimeout: 30_000,
-  },
+    test: {
+      environment: "jsdom",
+      setupFiles: ["./src/test-setup.ts"],
+      // Build-time chain pins, as a production build would have them (see src/wallet/chain.ts).
+      env: {
+        VITE_CHAIN_ID: "84532",
+        VITE_FORWARDER_ADDRESS: "0x00000000000000000000000000000000000000f0",
+        VITE_FACTORY_ADDRESS: "0x00000000000000000000000000000000000000fa",
+      },
+      testTimeout: 30_000,
+    },
+  };
 });

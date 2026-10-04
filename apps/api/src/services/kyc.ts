@@ -94,7 +94,7 @@ export async function listKyc(ctx: Ctx, status: "PENDING" | "APPROVED" | "REJECT
 
 export async function kycFile(ctx: Ctx, id: string, which: "idCard" | "selfie") {
   const k = await ctx.db.kycSubmission.findUnique({ where: { id } });
-  if (!k) throw notFound();
+  if (!k || k.purgedAt) throw notFound();
   const data = await ctx.storage.get(which === "idCard" ? k.idCardKey : k.selfieKey);
   return { data, contentType: sniffImage(data) ?? "application/octet-stream" };
 }

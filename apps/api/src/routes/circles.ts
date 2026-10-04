@@ -105,6 +105,7 @@ export function circleRoutes(app: FastifyInstance, ctx: Ctx) {
   app.get("/api/slips/:id", async (req, reply) => {
     const { id } = parse(idParams, req.params);
     const slip = await canSeeSlip(ctx, await requireUser(ctx, req), id);
+    if (slip.purgedAt) throw notFound("สลิปนี้ถูกลบตามระยะเวลาการเก็บรักษาแล้ว");
     const data = await ctx.storage.get(slip.storageKey);
     return reply.type(slip.contentType).header("Cache-Control", "private, no-store").send(data);
   });

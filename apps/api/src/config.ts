@@ -70,6 +70,14 @@ const schema = z.object({
   WORKER_INTERVAL_MS: z.coerce.number().int().min(500).default(5000),
   /** Waiting time between the second admin approval and an account key switch. */
   KEY_ROTATION_DELAY_HOURS: z.coerce.number().min(0).default(24),
+
+  // ── branding & privacy (PDPA) ──
+  /** Product name in user-visible messages (SMS, evidence report). The legal name is pending review. */
+  APP_NAME: z.string().trim().default("").transform((v) => v || "Bank For All"),
+  /** Cooling-off period between an account deletion request and the anonymisation (user can cancel). */
+  ACCOUNT_DELETION_DELAY_DAYS: z.coerce.number().min(0).default(7),
+  /** How long slips of a deleted account are kept as evidence for the other members after the circle ended. */
+  DELETED_SLIP_RETENTION_DAYS: z.coerce.number().int().min(0).default(3650),
 });
 
 export type Config = z.infer<typeof schema> & { ROLE: Role };

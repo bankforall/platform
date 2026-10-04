@@ -22,6 +22,21 @@ const amount = z.string().regex(/^\d+$/, "amount must be a non-negative integer 
 export const KycStatus = z.enum(["NONE", "PENDING", "APPROVED", "REJECTED"]);
 export type KycStatus = z.infer<typeof KycStatus>;
 
+export const DeletionStatus = z.enum(["PENDING", "CANCELLED", "REFUSED", "COMPLETED"]);
+export type DeletionStatus = z.infer<typeof DeletionStatus>;
+
+/** Account deletion request (PDPA). See `POST /api/me/deletion-request`. */
+export const deletionRequestView = z.object({
+  id: z.string(),
+  status: DeletionStatus,
+  /** ISO time after which the worker anonymises the account (the user can cancel until then). */
+  executeAfter: z.string(),
+  /** Why the request was refused (Thai). */
+  reason: z.string().nullable(),
+  createdAt: z.string(),
+});
+export type DeletionRequestView = z.infer<typeof deletionRequestView>;
+
 export const meResponse = z.object({
   id: z.string(),
   displayName: z.string(),
@@ -51,10 +66,19 @@ export const meResponse = z.object({
       createdAt: z.string(),
     })
     .nullable(),
+  /** Latest account deletion request while it is pending or was refused; null otherwise. */
+  deletionRequest: deletionRequestView.nullable(),
 });
 export type MeResponse = z.infer<typeof meResponse>;
 
-export const CONSENT_VERSION = "2026-10-01";
+/**
+ * Version of the terms of use + privacy policy (docs/legal/*-th.md). Bump it whenever either
+ * document changes materially: every user whose accepted version differs gets the consent
+ * onboarding step again and must re-accept before using the app.
+ */
+export const TERMS_VERSION = "2026-10-04";
+/** @deprecated use TERMS_VERSION (same value). */
+export const CONSENT_VERSION = TERMS_VERSION;
 
 export const sendOtpBody = z.object({ phone: z.string().regex(/^0\d{9}$/, "เบอร์มือถือ 10 หลัก ขึ้นต้นด้วย 0") });
 export const verifyOtpBody = z.object({ code: z.string().regex(/^\d{6}$/) });
@@ -66,7 +90,7 @@ export const promptPayBody = z.object({
   promptPayId: z.string().min(10).max(20),
   code: z.string().regex(/^\d{6}$/).optional(),
 });
-export const consentBody = z.object({ version: z.literal(CONSENT_VERSION) });
+export const consentBody = z.object({ version: z.literal(TERMS_VERSION) });
 /**
  * Registers the device-generated key; `backup` is encrypted client-side with the recovery code.
  * `proof` = personal_sign of `walletProofMessage(userId, address)` with that key.
@@ -313,6 +337,12 @@ export const keyRotationView = z.object({
   createdAt: z.string(),
 });
 export type KeyRotationView = z.infer<typeof keyRotationView>;
+export const adminDeletionRequestView = deletionRequestView.extend({
+  userId: z.string(),
+  displayName: z.string(),
+  completedAt: z.string().nullable(),
+});
+export type AdminDeletionRequestView = z.infer<typeof adminDeletionRequestView>;
 
 /** Converts the string fields of a prepared ForwardRequest to the bigint types viem expects. */
 export function toTypedDataMessage(m: PreparedIntent["typedData"]["message"]) {

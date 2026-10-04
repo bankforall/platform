@@ -45,7 +45,7 @@ export async function currentUser(ctx: Ctx, req: FastifyRequest): Promise<User |
   try {
     const { payload } = await jwtVerify(token, key(ctx), { algorithms: ["HS256"] });
     const user = await ctx.db.user.findUnique({ where: { id: payload.sub! } });
-    if (!user || user.sessionVersion !== payload.v) return null;
+    if (!user || user.deletedAt || user.sessionVersion !== payload.v) return null;
     return user;
   } catch {
     return null;

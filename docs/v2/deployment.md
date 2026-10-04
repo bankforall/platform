@@ -84,11 +84,35 @@ curl https://<domain>/api/health              # {"ok":true,...,"worker":true,"ga
 3. ผู้ดูแลออกจากระบบแล้วเข้าใหม่ → เมนู `/admin` (ตรวจ KYC, อนุมัติคำขอเปลี่ยนกุญแจ)
 4. ตั้งผู้ดูแล **อย่างน้อย 2 คน** — การกู้บัญชีต้องให้ผู้ดูแล 2 คนที่ต่างกันอนุมัติ
 
+### ชื่อบริการ (branding)
+
+ชื่อที่ผู้ใช้เห็นตั้งค่าได้ เพราะคำว่า "Bank" อาจถูกจำกัดตามกฎหมายไทย (รอความเห็นนักกฎหมาย) — identifier ในโค้ด/contract (`bankforall`, `BankForAll`) ไม่เปลี่ยน
+
+| ตัวแปร | ที่ใช้ | ค่าเริ่มต้น |
+| --- | --- | --- |
+| `VITE_APP_NAME` (build arg ของ web) | `<title>`, PWA manifest, หน้า consent/วิธีใช้/เอกสารกฎหมาย, ข้อความเชิญ, ไฟล์รหัสกู้คืน | `Bank For All` |
+| `VITE_APP_SHORT_NAME` (build arg ของ web) | ชื่อใต้ไอคอนบนหน้าจอโทรศัพท์, โลโก้หน้าแรก | = `VITE_APP_NAME` |
+| `APP_NAME` (env ของ api/worker) | SMS OTP, รายงานหลักฐาน, ไฟล์ส่งออกข้อมูล | `Bank For All` |
+
+ใน `.env.production` ตั้ง `APP_NAME` / `APP_SHORT_NAME` ครั้งเดียว — `docker-compose.prod.yml` ส่งให้ทั้ง api/worker และเป็น build arg ของ web
+สำหรับ image จาก release ตั้ง repository variables `VITE_APP_NAME` / `VITE_APP_SHORT_NAME` (ไม่บังคับ)
+ข้อความที่ลงนามด้วยกุญแจ (`walletProofMessage`, `keyRotationMessage`) ยังขึ้นต้นด้วย "Bank For All" โดยตั้งใจ เพราะ API ตรวจข้อความนั้นแบบตรงตัว
+
+### ข้อมูลส่วนบุคคล (PDPA)
+
+| ตัวแปร | ความหมาย | ค่าเริ่มต้น |
+| --- | --- | --- |
+| `ACCOUNT_DELETION_DELAY_DAYS` | ระยะรอระหว่างคำขอลบบัญชีกับการลบจริง (ผู้ใช้ยกเลิกได้) | 7 |
+| `DELETED_SLIP_RETENTION_DAYS` | เก็บสลิปของบัญชีที่ลบแล้วไว้เป็นหลักฐานกี่วันหลังวงจบ | 3650 |
+
+ค่าต้องตรงกับที่เขียนใน [นโยบายความเป็นส่วนตัว](../legal/privacy-th.md) — ก่อนเปิดใช้งานต้องให้นักกฎหมายตรวจและเติม placeholder ใน [docs/legal](../legal/README.md)
+
 ### Release (image สำเร็จรูป)
 
 push tag `v1.2.3` → GitHub Actions สร้าง `ghcr.io/bankforall/platform-{api,migrate,web}:1.2.3` พร้อม SBOM และ provenance attestation
 web image ฝัง chain และ contract ที่จะยอมลงนามไว้ตอน build: ตั้ง repository variables `VITE_CHAIN_ID`, `VITE_FORWARDER_ADDRESS`,
 `VITE_FACTORY_ADDRESS` (Settings → Secrets and variables → Actions → Variables) ให้ตรงกับ contract ที่ deploy แล้ว
+(ไม่บังคับ: `VITE_APP_NAME`, `VITE_APP_SHORT_NAME`)
 ตรวจ image ก่อนใช้: `gh attestation verify oci://ghcr.io/bankforall/platform-api:1.2.3 -R bankforall/platform`
 
 ## 4. งานประจำ
@@ -99,7 +123,8 @@ web image ฝัง chain และ contract ที่จะยอมลงน�
 | เติม gas | เมื่อ `gasLow` | โอน ETH บน Base ไปที่ address ที่ log แจ้ง |
 | Backup | ทุกคืน | `deploy/backup.sh` ผ่าน cron (เข้ารหัสด้วย `BACKUP_PASSPHRASE` — เก็บ passphrase นอกเซิร์ฟเวอร์) + ส่งออกนอกเครื่อง (rclone/restic) |
 | ตรวจ ingest errors | ทุกวัน | ตาราง `IngestError` ต้องว่าง; log มีคำว่า `ALERT:` ให้ดูทันที |
-| ตรวจ audit log | ทุกสัปดาห์ | ตาราง `AdminAuditLog` (ตัดสิน KYC, ดูไฟล์ KYC, อนุมัติเปลี่ยนกุญแจ) |
+| ตรวจ audit log | ทุกสัปดาห์ | ตาราง `AdminAuditLog` (ตัดสิน KYC, ดูไฟล์ KYC, อนุมัติเปลี่ยนกุญแจ, คำขอลบบัญชี) |
+| คำขอตาม PDPA | ทุกสัปดาห์ | `/admin` → "คำขอลบบัญชี" (worker ลบเองเมื่อครบเวลา) และคำขอที่ส่งมาทางอีเมล DPO ต้องตอบภายใน 30 วัน |
 | ทดสอบ restore | ทุกเดือน | restore ลงเครื่องทดสอบตามคำสั่งท้าย `backup.sh` |
 | อัปเดตระบบ | ตามรอบ release | `git pull && docker compose ... up -d --build` (migration รันเอง) |
 | Monitoring | ต่อเนื่อง | uptime check `GET /api/health` (HTTP 200 + `worker:true` + `gasLow:false`) |
@@ -117,7 +142,7 @@ web image ฝัง chain และ contract ที่จะยอมลงน�
 
 ## 6. สิ่งที่ยังต้องทำก่อนเปิดให้คนทั่วไปใช้
 
-- [ ] ความเห็นทางกฎหมาย ([legal-checklist.md](./legal-checklist.md)) และข้อความ Terms/Privacy ฉบับจริงในหน้า consent
+- [ ] ความเห็นทางกฎหมาย ([legal-checklist.md](./legal-checklist.md)), ชื่อบริการ, และ Terms/Privacy ฉบับจริง ([ร่างใน docs/legal](../legal/README.md) — เติม placeholder แล้วเปลี่ยน `TERMS_VERSION`)
 - [ ] Security audit ของ contract และ penetration test ของ API/web
 - [ ] เลือกผู้ให้บริการตรวจสลิปอัตโนมัติ (ตอนนี้ `SLIP_VERIFIER=none` — ผู้รับเป็นผู้ยืนยัน) และ SMS ในไทย
 - [ ] ย้าย factory admin ไป multisig (Safe), ตั้ง alerting ภายนอก (เช่น UptimeRobot/Better Stack) และ log shipping (ค้นหา `ALERT:` และ `audit:`)

@@ -1,6 +1,6 @@
 import { SOURCE_URL } from "@/lib/source";
 import { useState } from "react";
-import { Navigate, useNavigate, useSearchParams } from "react-router";
+import { Link, Navigate, useNavigate, useSearchParams } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { api, qk } from "@/api/endpoints";
 import { errorMessage } from "@/api/client";
@@ -73,7 +73,15 @@ export default function Login() {
         )}
 
         <p className="mt-10 text-center text-xs text-ink-muted">
-          การเข้าสู่ระบบถือว่าคุณยอมรับ ข้อกำหนดการใช้งาน และ นโยบายความเป็นส่วนตัว ซึ่งจะแสดงให้อ่านในขั้นตอนถัดไป
+          การเข้าสู่ระบบถือว่าคุณยอมรับ{" "}
+          <Link to="/terms" className="underline">
+            ข้อกำหนดการใช้งาน
+          </Link>{" "}
+          และ{" "}
+          <Link to="/privacy" className="underline">
+            นโยบายความเป็นส่วนตัว
+          </Link>{" "}
+          ซึ่งจะแสดงให้อ่านในขั้นตอนถัดไป
         </p>
         <p className="mt-3 text-center text-xs text-ink-muted">
           <a href={SOURCE_URL} target="_blank" rel="noreferrer" className="underline">

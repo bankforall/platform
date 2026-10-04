@@ -20,6 +20,7 @@ const JoinByInvite = lazy(() => import("@/screens/JoinByInvite"));
 const Notifications = lazy(() => import("@/screens/Notifications"));
 const Profile = lazy(() => import("@/screens/Profile"));
 const Admin = lazy(() => import("@/screens/Admin"));
+const Legal = lazy(() => import("@/screens/Legal"));
 
 /**
  * Gate for the signed-in app:
@@ -54,6 +55,8 @@ export default function App() {
         <Route path="/welcome" element={<Welcome />} />
         <Route path="/how-it-works" element={<HowItWorks />} />
         <Route path="/login" element={<Login />} />
+        <Route path="/terms" element={<Legal doc="terms" />} />
+        <Route path="/privacy" element={<Legal doc="privacy" />} />
         <Route path="/onboarding" element={<Onboarding />} />
         <Route path="/restore" element={<Restore />} />
         <Route path="/" element={<RequireApp><Home /></RequireApp>} />

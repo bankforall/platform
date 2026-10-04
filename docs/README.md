@@ -26,6 +26,7 @@
 | [repos/bank4all-blockathon2023Frontend.md](./repos/bank4all-blockathon2023Frontend.md) | Frontend Vue 2 ที่ generate จาก Figma (Anima) สำหรับ Blockathon |
 | [repos/bank4all.md](./repos/bank4all.md) | Repo หลัก/landing (README, ประวัติ monorepo เดิม), `.github` profile และ `blockchain` (private) |
 | [v2/README.md](./v2/README.md) | **ออกแบบระบบใหม่ (v2)** — การตัดสินใจ, กติกา, สถาปัตยกรรม, smart contract, กฎหมาย |
+| [legal/README.md](./legal/README.md) | **ร่าง** ข้อกำหนดการใช้บริการและนโยบายความเป็นส่วนตัว (PDPA) ที่แสดงในแอป — ต้องให้นักกฎหมายตรวจก่อนใช้งานจริง |
 | [known-issues.md](./known-issues.md) | รวมบั๊ก ช่องโหว่ด้านความปลอดภัย จุดที่ไม่สอดคล้องกัน และข้อเสนอแนะ เรียงตามความสำคัญ |
 
 ## สรุป Repository ทั้งหมด (7 repos)

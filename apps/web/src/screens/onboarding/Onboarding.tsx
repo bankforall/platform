@@ -67,7 +67,7 @@ export default function Onboarding() {
       <main className="px-5 py-6">
         {step === "phone" && <PhoneStep onDone={done} />}
         {step === "promptpay" && <PromptPayStep me={me.data} onDone={done} />}
-        {step === "consent" && <ConsentStep onDone={done} />}
+        {step === "consent" && <ConsentStep me={me.data} onDone={done} />}
         {step === "wallet" && <WalletStep me={me.data} onDone={done} />}
         {step === "kyc" && <KycStep me={me.data} onDone={done} />}
       </main>

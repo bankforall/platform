@@ -87,6 +87,9 @@ API ของ contract อ่านได้จาก `packages/shared/src/abi.t
 5. **slips** — ส่งสลิปให้ verifier (pluggable) ถ้าผ่าน → `attestSlip`
 6. **reminders** — แจ้งเตือน D-2 / D-0 / เลยกำหนด (กันซ้ำด้วย `dedupeKey`)
 7. **push** — ส่ง notification ไป LINE
+8. **rotations** — เปลี่ยนกุญแจที่อนุมัติครบและพ้นเวลารอแล้ว
+9. **deletions** — ลบบัญชี (PDPA) ที่พ้นระยะรอ หลังตรวจซ้ำว่าไม่มีวงที่ยังไม่จบหรือหนี้ค้าง ([security.md §4](./security.md#4-ข้อมูลส่วนบุคคลและสิทธิตาม-pdpa))
+10. **slip-retention** — ลบไฟล์สลิปของบัญชีที่ลบแล้วเมื่อครบ `DELETED_SLIP_RETENTION_DAYS` หลังวงจบ
 
 ## 6. ความปลอดภัย
 
