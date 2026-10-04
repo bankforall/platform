@@ -26,6 +26,14 @@ Postgres, Redis, S3 and a local chain.
 - [ ] No personal data on-chain; amounts stay in satang (bigint)
 - [ ] User-facing text in Thai; no crypto jargon in the UI
 
+## Dependencies
+
+- Node.js stays on the current **LTS** line; new majors are adopted once they become LTS.
+- pnpm refuses versions published less than 24 hours ago (`minimumReleaseAge`).
+- Contract libraries (`packages/contracts/lib`, git submodules) are pinned to **release tags** and
+  updated by hand: `cd packages/contracts/lib/openzeppelin-contracts && git checkout vX.Y.Z`, then run
+  the full contract test suite and Slither.
+
 ## Commit style
 
 Short imperative subject (`api: verify slip hash before relaying`), body explaining *why*.

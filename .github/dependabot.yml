@@ -4,16 +4,23 @@ updates:
     directory: /
     schedule: { interval: weekly }
     open-pull-requests-limit: 10
-    cooldown: { default-days: 3 }   # same idea as pnpm minimumReleaseAge
+    cooldown: { default-days: 3 } # same idea as pnpm minimumReleaseAge
     groups:
       minor-and-patch:
         update-types: [minor, patch]
+    ignore:
+      # stay on the Node.js LTS line (types must match the runtime)
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: weekly }
   - package-ecosystem: docker
     directories: [/apps/api, /apps/web]
     schedule: { interval: weekly }
-  - package-ecosystem: gitsubmodule
-    directory: /
-    schedule: { interval: monthly }
+    ignore:
+      # Node.js images: move to a new major only when it becomes LTS (manual)
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]
+# Contract libraries (git submodules) are pinned to audited release tags and updated by hand
+# (see CONTRIBUTING.md); automatic bumps would track unreleased commits.
