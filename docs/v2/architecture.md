@@ -38,8 +38,8 @@ flowchart LR
 | --- | --- | --- |
 | `packages/contracts` | `CircleFactory`, `Circle`, `CircleTypes`, deploy script, ABI export | Foundry 56 ข้อ (รวม replay test vectors, meta-tx, key rotation, regression ของ security review) + Slither 0 findings |
 | `packages/shared` | กติกา (`circle-math`), zod API contract (`api.ts`), EIP-712 types, PromptPay EMVCo, ABIs | vitest 26 ข้อ (PromptPay เทียบกับ `promptpay-qr`) |
-| `apps/api` | Fastify API + worker + signer + Prisma schema/migrations + CLI (image เดียว, 3 บทบาท แต่ละบทบาทได้กุญแจของตัวเองเท่านั้น) | unit 9 ข้อ + **E2E 11 ขั้น** (signer ผ่าน HTTP จริง) กับ Postgres/Redis/S3/anvil จริง |
-| `apps/web` | PWA (React, Vite, Tailwind, TanStack Query, viem) | vitest 76 ข้อ (wallet crypto, ตัวตรวจก่อนลงนาม, screens) |
+| `apps/api` | Fastify API + worker + signer + Prisma schema/migrations + CLI (image เดียว, 3 บทบาท แต่ละบทบาทได้กุญแจของตัวเองเท่านั้น) | unit 45 ข้อ + **E2E 11 ขั้น** (signer ผ่าน HTTP จริง) กับ Postgres/Redis/S3/anvil จริง |
+| `apps/web` | PWA (React, Vite, Tailwind, TanStack Query, viem) | vitest 90 ข้อ (wallet crypto, ตัวตรวจก่อนลงนาม, screens) |
 | `e2e` | Playwright: ผู้ใช้หลายคนในเบราว์เซอร์จริง | |
 | `deploy` | `docker-compose.prod.yml`, `Caddyfile`, `.env.production.example`, `backup.sh` | smoke test ทั้ง stack แบบ production แล้ว |
 | `docker-compose.dev.yml`, `scripts/dev-deploy.sh` | สภาพแวดล้อมพัฒนา | |
