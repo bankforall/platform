@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { User } from "../db.js";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { jwtVerify, SignJWT } from "jose";
@@ -39,17 +40,33 @@ export async function verifiedSubject(ctx: Ctx, token: string): Promise<string |
   }
 }
 
-export async function currentUser(ctx: Ctx, req: FastifyRequest): Promise<User | null> {
+export interface Session {
+  user: User;
+  /** Stable id of this login (hash of the session token) — binds admin step-up and WebAuthn challenges to it. */
+  id: string;
+  /** When this login happened (JWT iat). */
+  issuedAt: Date;
+}
+
+export async function currentSession(ctx: Ctx, req: FastifyRequest): Promise<Session | null> {
   const token = req.cookies[SESSION_COOKIE];
   if (!token) return null;
   try {
     const { payload } = await jwtVerify(token, key(ctx), { algorithms: ["HS256"] });
     const user = await ctx.db.user.findUnique({ where: { id: payload.sub! } });
     if (!user || user.sessionVersion !== payload.v) return null;
-    return user;
+    return {
+      user,
+      id: createHash("sha256").update(token).digest("hex"),
+      issuedAt: new Date((payload.iat ?? 0) * 1000),
+    };
   } catch {
     return null;
   }
+}
+
+export async function currentUser(ctx: Ctx, req: FastifyRequest): Promise<User | null> {
+  return (await currentSession(ctx, req))?.user ?? null;
 }
 
 export async function requireUser(ctx: Ctx, req: FastifyRequest): Promise<User> {
@@ -58,8 +75,10 @@ export async function requireUser(ctx: Ctx, req: FastifyRequest): Promise<User> 
   return user;
 }
 
-export async function requireAdmin(ctx: Ctx, req: FastifyRequest): Promise<User> {
-  const user = await requireUser(ctx, req);
-  if (user.role !== "ADMIN") throw forbidden();
-  return user;
+/** Admin role only — no second factor. Routes use `requireAdminAccess` (services/adminPasskeys.ts). */
+export async function requireAdminSession(ctx: Ctx, req: FastifyRequest): Promise<Session> {
+  const session = await currentSession(ctx, req);
+  if (!session) throw unauthorized();
+  if (session.user.role !== "ADMIN") throw forbidden();
+  return session;
 }

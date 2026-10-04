@@ -9,6 +9,8 @@ import { Button, Card, Chip, EmptyState, ErrorState, Field, KeyValue, Loading } 
 import { useMe } from "@/hooks/session";
 import { shortAddress } from "@/lib/format";
 import { Tabs } from "@/components/widgets";
+import { AdminSecurity } from "@/components/AdminSecurity";
+import { AdminStepUpProvider, useAdminStepUp } from "@/hooks/adminStepUp";
 
 type Status = "PENDING" | "APPROVED" | "REJECTED";
 
@@ -17,6 +19,7 @@ const DEFAULT_REPUTATION = 100;
 
 function Review({ item, onDone }: { item: KycReviewItem; onDone: () => void }) {
   const toast = useToast();
+  const guard = useAdminStepUp();
   const [reason, setReason] = useState("");
   const [reputation, setReputation] = useState(DEFAULT_REPUTATION);
   const [busy, setBusy] = useState(false);
@@ -25,7 +28,7 @@ function Review({ item, onDone }: { item: KycReviewItem; onDone: () => void }) {
     if (!approve && reason.trim().length < 3) return toast("ระบุเหตุผลที่ไม่อนุมัติ", "error");
     setBusy(true);
     try {
-      await api.kycDecision(item.id, approve, reason.trim() || undefined, approve ? reputation : undefined);
+      await guard(() => api.kycDecision(item.id, approve, reason.trim() || undefined, approve ? reputation : undefined));
       toast(approve ? "อนุมัติแล้ว" : "ไม่อนุมัติแล้ว", "success");
       onDone();
     } catch (e) {
@@ -95,6 +98,7 @@ const rotationStatusText: Record<KeyRotationView["status"], string> = {
 
 function RotationItem({ item, myId, onDone }: { item: KeyRotationView; myId: string | undefined; onDone: () => void }) {
   const toast = useToast();
+  const guard = useAdminStepUp();
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const approvedByMe = item.approvals.some((a) => a.adminId === myId);
@@ -103,7 +107,7 @@ function RotationItem({ item, myId, onDone }: { item: KeyRotationView; myId: str
     if (!window.confirm(`อนุมัติการเปลี่ยนกุญแจของ ${item.displayName}? ยืนยันตัวตนผู้ขอแล้วใช่ไหม`)) return;
     setBusy(true);
     try {
-      const updated = await api.approveKeyRotation(item.id);
+      const updated = await guard(() => api.approveKeyRotation(item.id));
       toast(updated.approvals.length >= 2 ? "อนุมัติครบ 2 คนแล้ว จะเปลี่ยนกุญแจหลังครบ 24 ชั่วโมง" : "อนุมัติแล้ว รอผู้ดูแลอีก 1 คน", "success");
       onDone();
     } catch (e) {
@@ -117,7 +121,7 @@ function RotationItem({ item, myId, onDone }: { item: KeyRotationView; myId: str
     if (reason.trim().length < 3) return toast("ระบุเหตุผลที่ไม่อนุมัติ", "error");
     setBusy(true);
     try {
-      await api.rejectKeyRotation(item.id, reason.trim());
+      await guard(() => api.rejectKeyRotation(item.id, reason.trim()));
       toast("ปฏิเสธคำขอแล้ว", "success");
       onDone();
     } catch (e) {
@@ -220,36 +224,43 @@ function KeyRotations() {
 export default function Admin() {
   const [status, setStatus] = useState<Status>("PENDING");
   const q = useQuery({ queryKey: qk.kyc(status), queryFn: () => api.kycQueue(status) });
+  const security = useQuery({ queryKey: qk.adminSecurity, queryFn: api.adminSecurity });
   const queryClient = useQueryClient();
+  // enrolment comes first while it blocks everything else
+  const mustEnrol = !!security.data?.required && security.data.passkeys.length === 0;
 
   return (
-    <Screen>
-      <Header title="ตรวจสอบตัวตน (KYC)" back="/profile">
-        <Tabs<Status>
-          dark
-          value={status}
-          onChange={setStatus}
-          tabs={[
-            { id: "PENDING", label: "รอตรวจ" },
-            { id: "APPROVED", label: "อนุมัติ" },
-            { id: "REJECTED", label: "ไม่อนุมัติ" },
-          ]}
-        />
-      </Header>
-      <main className="space-y-3 px-4 py-4">
-        {q.isLoading ? (
-          <Loading />
-        ) : q.isError ? (
-          <ErrorState message={errorMessage(q.error)} onRetry={() => void q.refetch()} />
-        ) : !q.data?.length ? (
-          <EmptyState title="ไม่มีรายการ" icon="✅" />
-        ) : (
-          q.data.map((item) => (
-            <Review key={item.id} item={item} onDone={() => void queryClient.invalidateQueries({ queryKey: ["admin", "kyc"] })} />
-          ))
-        )}
-        <KeyRotations />
-      </main>
-    </Screen>
+    <AdminStepUpProvider>
+      <Screen>
+        <Header title="ตรวจสอบตัวตน (KYC)" back="/profile">
+          <Tabs<Status>
+            dark
+            value={status}
+            onChange={setStatus}
+            tabs={[
+              { id: "PENDING", label: "รอตรวจ" },
+              { id: "APPROVED", label: "อนุมัติ" },
+              { id: "REJECTED", label: "ไม่อนุมัติ" },
+            ]}
+          />
+        </Header>
+        <main className="space-y-3 px-4 py-4">
+          {mustEnrol && <AdminSecurity query={security} />}
+          {q.isLoading ? (
+            <Loading />
+          ) : q.isError ? (
+            <ErrorState message={errorMessage(q.error)} onRetry={() => void q.refetch()} />
+          ) : !q.data?.length ? (
+            <EmptyState title="ไม่มีรายการ" icon="✅" />
+          ) : (
+            q.data.map((item) => (
+              <Review key={item.id} item={item} onDone={() => void queryClient.invalidateQueries({ queryKey: ["admin", "kyc"] })} />
+            ))
+          )}
+          <KeyRotations />
+          {!mustEnrol && <AdminSecurity query={security} />}
+        </main>
+      </Screen>
+    </AdminStepUpProvider>
   );
 }

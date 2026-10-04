@@ -76,13 +76,36 @@ curl https://<domain>/api/health              # {"ok":true,...,"worker":true,"ga
 - `migrate` รัน `prisma migrate deploy` อัตโนมัติก่อน api/worker ทุกครั้งที่ `up`
 - **ห้าม** ตั้ง `DEV_LOGIN=true` ใน production (ระบบไม่ยอมเริ่ม)
 - ระบบปฏิเสธการเริ่มถ้าไม่มี LINE Login, ใช้ SMS แบบ console หรือ `PUBLIC_URL` ไม่ใช่ https
+- พาสคีย์ผู้ดูแล (2FA, [security.md §4](./security.md#4-พาสคีย์ผู้ดูแล-webauthn-2fa)) บังคับเสมอใน production — ต้องตั้ง:
+
+| ตัวแปร | ค่า | หมายเหตุ |
+| --- | --- | --- |
+| `WEBAUTHN_RP_ID` | hostname ที่ผู้ดูแลเปิด เช่น `app.example.co.th` (= `DOMAIN`) | **ห้ามเปลี่ยนภายหลัง** — พาสคีย์ผูกกับค่านี้ เปลี่ยนแล้วพาสคีย์ทุกอันใช้ไม่ได้ (ต้องล้างด้วย CLI และลงทะเบียนใหม่) |
+| `WEBAUTHN_ORIGIN` | `https://app.example.co.th` (= `PUBLIC_URL` ไม่มี path) | ต้องเป็น https และ hostname ต้องตรงหรือเป็น subdomain ของ `WEBAUTHN_RP_ID` |
+| `ADMIN_STEPUP_TTL` | `900` (วินาที, 60–3600) | ยืนยันพาสคีย์หนึ่งครั้งทำรายการผู้ดูแลต่อได้นานเท่านี้ |
+| `ADMIN_PASSKEY_REQUIRED` | `true` (compose ตั้งให้แล้ว) | ตั้ง `false` ได้เฉพาะ development/test |
+
+  นอก production ค่าเหล่านี้ได้มาจาก `PUBLIC_URL` อัตโนมัติ (`http://localhost:5173` → RP ID `localhost`) และ `ADMIN_PASSKEY_REQUIRED=false`
 
 ### ตั้งผู้ดูแล (admin) คนแรก
 
 1. ผู้ดูแลเข้าสู่ระบบด้วย LINE หนึ่งครั้ง
 2. `docker compose -f docker-compose.prod.yml --env-file .env.production exec api node dist/cli/promote-admin.js <userId หรือ LINE userId>`
-3. ผู้ดูแลออกจากระบบแล้วเข้าใหม่ → เมนู `/admin` (ตรวจ KYC, อนุมัติคำขอเปลี่ยนกุญแจ)
-4. ตั้งผู้ดูแล **อย่างน้อย 2 คน** — การกู้บัญชีต้องให้ผู้ดูแล 2 คนที่ต่างกันอนุมัติ
+3. ผู้ดูแลออกจากระบบแล้วเข้าใหม่ → เมนู `/admin` → ส่วน **"ความปลอดภัยผู้ดูแล"** → ตั้งชื่ออุปกรณ์แล้วกด "เพิ่มพาสคีย์"
+   **ภายใน 15 นาทีหลังเข้าสู่ระบบ** (ถ้าเลยเวลา ให้ออกจากระบบแล้วเข้าใหม่) — ก่อนลงทะเบียน เมนูผู้ดูแลใช้ไม่ได้ (`ADMIN_PASSKEY_REQUIRED`)
+   ทำทันทีหลังข้อ 2 เพราะก่อนมีพาสคีย์ บัญชีผู้ดูแลยังป้องกันด้วย LINE อย่างเดียว
+4. เพิ่มพาสคีย์อันที่ 2 (อีกเครื่องหรือ security key) เผื่อเครื่องหาย — ต้องยืนยันด้วยพาสคีย์แรกก่อน
+5. ใช้งาน `/admin` ได้ (ตรวจ KYC, อนุมัติคำขอเปลี่ยนกุญแจ) — ทุกครั้งที่อนุมัติ/ปฏิเสธ ระบบจะขอพาสคีย์ถ้ายืนยันครั้งล่าสุดเกิน `ADMIN_STEPUP_TTL`
+6. ตั้งผู้ดูแล **อย่างน้อย 2 คน** — การกู้บัญชีต้องให้ผู้ดูแล 2 คนที่ต่างกันอนุมัติ
+
+### ผู้ดูแลทำอุปกรณ์ที่มีพาสคีย์หายทั้งหมด
+
+1. ยืนยันตัวตนผู้ดูแลนอกระบบ (เช่น วิดีโอคอลคู่บัตร หรือผู้ดูแลอีกคนยืนยัน)
+2. `docker compose -f docker-compose.prod.yml --env-file .env.production exec api node dist/cli/clear-admin-passkeys.js <userId หรือ LINE userId> "<เหตุผล>"`
+   — ลบพาสคีย์ทั้งหมดของคนนั้น, เพิกถอนทุก session และบันทึก `admin.passkeys.cleared` (ผู้รัน = user ของ shell) ใน `AdminAuditLog`
+3. ผู้ดูแลเข้าสู่ระบบใหม่แล้วลงทะเบียนพาสคีย์ภายใน 15 นาที (เหมือนข้อ 3 ด้านบน)
+
+ถ้าแค่หายบางเครื่อง ผู้ดูแลลบพาสคีย์ของเครื่องที่หายเองได้ในส่วน "ความปลอดภัยผู้ดูแล" (ต้องยืนยันด้วยพาสคีย์ที่เหลือ)
 
 ### Release (image สำเร็จรูป)
 
@@ -99,7 +122,7 @@ web image ฝัง chain และ contract ที่จะยอมลงน�
 | เติม gas | เมื่อ `gasLow` | โอน ETH บน Base ไปที่ address ที่ log แจ้ง |
 | Backup | ทุกคืน | `deploy/backup.sh` ผ่าน cron (เข้ารหัสด้วย `BACKUP_PASSPHRASE` — เก็บ passphrase นอกเซิร์ฟเวอร์) + ส่งออกนอกเครื่อง (rclone/restic) |
 | ตรวจ ingest errors | ทุกวัน | ตาราง `IngestError` ต้องว่าง; log มีคำว่า `ALERT:` ให้ดูทันที |
-| ตรวจ audit log | ทุกสัปดาห์ | ตาราง `AdminAuditLog` (ตัดสิน KYC, ดูไฟล์ KYC, อนุมัติเปลี่ยนกุญแจ) |
+| ตรวจ audit log | ทุกสัปดาห์ | ตาราง `AdminAuditLog` (ตัดสิน KYC, ดูไฟล์ KYC, อนุมัติเปลี่ยนกุญแจ, เพิ่ม/ลบ/ล้างพาสคีย์ผู้ดูแล, `admin.stepup.failed`) |
 | ทดสอบ restore | ทุกเดือน | restore ลงเครื่องทดสอบตามคำสั่งท้าย `backup.sh` |
 | อัปเดตระบบ | ตามรอบ release | `git pull && docker compose ... up -d --build` (migration รันเอง) |
 | Monitoring | ต่อเนื่อง | uptime check `GET /api/health` (HTTP 200 + `worker:true` + `gasLow:false`) |
@@ -121,5 +144,5 @@ web image ฝัง chain และ contract ที่จะยอมลงน�
 - [ ] Security audit ของ contract และ penetration test ของ API/web
 - [ ] เลือกผู้ให้บริการตรวจสลิปอัตโนมัติ (ตอนนี้ `SLIP_VERIFIER=none` — ผู้รับเป็นผู้ยืนยัน) และ SMS ในไทย
 - [ ] ย้าย factory admin ไป multisig (Safe), ตั้ง alerting ภายนอก (เช่น UptimeRobot/Better Stack) และ log shipping (ค้นหา `ALERT:` และ `audit:`)
-- [ ] WebAuthn/2FA สำหรับผู้ดูแล — ดูความเสี่ยงที่ยอมรับใน [security.md](./security.md#3-ความเสี่ยงที่ยอมรับและยังต้องทำ)
+- [x] WebAuthn/2FA สำหรับผู้ดูแล — [security.md §4](./security.md#4-พาสคีย์ผู้ดูแล-webauthn-2fa)
 - [ ] Pilot แบบ invite-only บน Base Sepolia → Base mainnet

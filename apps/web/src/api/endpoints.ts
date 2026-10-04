@@ -1,6 +1,9 @@
 import { z } from "zod";
 import {
   CONSENT_VERSION,
+  adminSecurityView,
+  adminStepUpResponse,
+  webauthnOptions,
   circleDetail,
   circleSummary,
   intentResponse,
@@ -127,6 +130,16 @@ export const api = {
   approveKeyRotation: (id: string) =>
     request(`/admin/key-rotations/${id}/approve`, { method: "POST", schema: keyRotationView }),
   rejectKeyRotation: (id: string, reason: string) => request(`/admin/key-rotations/${id}/reject`, { body: { reason } }),
+
+  // admin passkeys (2FA) — ceremonies are wrapped in lib/passkey.ts
+  adminSecurity: () => request("/admin/security", { schema: adminSecurityView }),
+  passkeyRegisterOptions: () => request("/admin/passkeys/register/options", { method: "POST", schema: webauthnOptions }),
+  passkeyRegister: (name: string, response: Record<string, unknown>) =>
+    request("/admin/passkeys/register/verify", { body: { name, response }, schema: adminSecurityView }),
+  deletePasskey: (id: string) => request(`/admin/passkeys/${id}`, { method: "DELETE" }),
+  adminStepUpOptions: () => request("/admin/step-up/options", { method: "POST", schema: webauthnOptions }),
+  adminStepUp: (response: Record<string, unknown>) =>
+    request("/admin/step-up/verify", { body: { response }, schema: adminStepUpResponse }),
 };
 
 export const qk = {
@@ -139,4 +152,5 @@ export const qk = {
   promptPay: (id: string) => ["circles", "promptpay", id] as const,
   kyc: (status: string) => ["admin", "kyc", status] as const,
   keyRotations: (status: string) => ["admin", "key-rotations", status] as const,
+  adminSecurity: ["admin", "security"] as const,
 };

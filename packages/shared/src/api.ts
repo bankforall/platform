@@ -314,6 +314,43 @@ export const keyRotationView = z.object({
 });
 export type KeyRotationView = z.infer<typeof keyRotationView>;
 
+/**
+ * Admin passkeys (WebAuthn) — second factor on top of LINE login.
+ * Error codes on admin routes: ADMIN_PASSKEY_REQUIRED (enrol a passkey first), ADMIN_STEP_UP_REQUIRED
+ * (confirm with a passkey, then retry), ADMIN_REAUTH_REQUIRED (first enrolment needs a fresh login).
+ */
+export const ADMIN_ERROR = {
+  passkeyRequired: "ADMIN_PASSKEY_REQUIRED",
+  stepUpRequired: "ADMIN_STEP_UP_REQUIRED",
+  reauthRequired: "ADMIN_REAUTH_REQUIRED",
+} as const;
+export const adminPasskeyView = z.object({
+  id: z.string(),
+  name: z.string(),
+  createdAt: z.string(),
+  lastUsedAt: z.string().nullable(),
+});
+export type AdminPasskeyView = z.infer<typeof adminPasskeyView>;
+export const adminSecurityView = z.object({
+  /** Passkey + step-up enforced for every admin (always true in production). */
+  required: z.boolean(),
+  passkeys: z.array(adminPasskeyView),
+  /** Until when this session may perform admin changes without another passkey prompt. */
+  stepUpExpiresAt: z.string().nullable(),
+  /** Can a passkey be added now: "open", needs a passkey "step-up", or needs a fresh "relogin" (first one). */
+  enrolment: z.enum(["open", "step-up", "relogin"]),
+});
+export type AdminSecurityView = z.infer<typeof adminSecurityView>;
+/** WebAuthn options/credential JSON (validated by @simplewebauthn on the server). */
+const webauthnJson = z.record(z.string(), z.unknown());
+export const webauthnOptions = webauthnJson;
+export const passkeyRegisterBody = z.object({
+  name: z.string().trim().min(1).max(50),
+  response: webauthnJson,
+});
+export const passkeyAssertionBody = z.object({ response: webauthnJson });
+export const adminStepUpResponse = z.object({ expiresAt: z.string() });
+
 /** Converts the string fields of a prepared ForwardRequest to the bigint types viem expects. */
 export function toTypedDataMessage(m: PreparedIntent["typedData"]["message"]) {
   return {

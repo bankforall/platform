@@ -11,6 +11,7 @@
 | **ไม่เชื่อ server แบบตาบอด** | PWA ถอดรหัส calldata เอง ตรวจ chain/forwarder/factory ที่ฝังไว้ตอน build และตรวจ `to` กับวงที่ผู้ใช้กำลังทำรายการ ก่อนจะยอมลงนาม — หน้ายืนยันสร้างจากข้อมูลที่ถอดรหัสได้ ไม่ใช่ข้อความจาก server |
 | **แยกกุญแจตามหน้าที่** | relayer อยู่ใน `api` เท่านั้น, keeper อยู่ใน `worker` เท่านั้น, attester อยู่ใน `signer` ซึ่งไม่เปิดพอร์ตออกนอก ต้องใช้ token และตรวจนโยบายกับฐานข้อมูลก่อนลงนามทุกครั้ง; config ไม่ยอมเริ่มถ้ามีกุญแจเกินหน้าที่ |
 | **การกู้บัญชีต้องหลายคน** | ผู้ใช้พิสูจน์ความเป็นเจ้าของกุญแจใหม่ → ผู้ดูแล 2 คนที่ต่างกันอนุมัติ → รอ 24 ชม. (ผู้ใช้ยกเลิกได้และได้รับแจ้งเตือน) → worker เปลี่ยนกุญแจบน chain; ทุกขั้นบันทึกใน `AdminAuditLog` |
+| **ผู้ดูแลใช้ 2 ปัจจัย** | LINE login + **พาสคีย์ (WebAuthn)** ของผู้ดูแล: ทุกรายการที่เปลี่ยนแปลงข้อมูลต้องยืนยันพาสคีย์ใหม่ภายใน `ADMIN_STEPUP_TTL` (ดู §4) — บัญชี LINE ของผู้ดูแลถูกยึดก็ยังอนุมัติอะไรไม่ได้ |
 | **ข้อมูลส่วนบุคคล** | ไม่มีบน chain; ไฟล์ KYC/สลิปเข้ารหัส AES-256-GCM; เลขบัตรเก็บเป็น HMAC; backup เข้ารหัส |
 | **Supply chain** | pnpm `minimumReleaseAge` 24 ชม., GitHub Actions pin ด้วย commit SHA, Dependabot, CodeQL, Slither, images มี SBOM + provenance attestation |
 
@@ -44,5 +45,25 @@ Static analysis (Slither, ไม่รวม detector ที่ยอมรั�
 | Reorg หลังบันทึกจาก receipt ทันที (L10) | ความเสี่ยงต่ำบน Base; indexer ใช้ `CONFIRMATIONS` |
 | XSS = ใช้กุญแจในเครื่องได้ (L11) | CSP เข้มงวด, ไม่มี HTML จากผู้ใช้; ข้อจำกัดของกุญแจในเบราว์เซอร์ |
 | Factory admin เป็น EOA (L15) | **ต้องย้ายไป multisig (Safe) ก่อนขึ้น mainnet** |
-| Admin ใช้ LINE login อย่างเดียว | ลดความเสี่ยงด้วย 2-person rule + timelock; ควรเพิ่ม WebAuthn สำหรับ admin |
+| ผู้ดูแลที่ยังไม่ลงทะเบียนพาสคีย์ (bootstrap) | ผู้ที่ยึดบัญชี LINE ของผู้ดูแลได้ **ก่อน** ผู้ดูแลลงทะเบียนพาสคีย์แรก จะลงทะเบียนพาสคีย์ของตัวเองได้ (ภายใน 15 นาทีหลัง login) — ลดความเสี่ยงโดยให้ผู้ดูแลลงทะเบียนทันทีหลัง `promote-admin`, แจ้งเตือนทุกครั้งที่เพิ่ม/ลบพาสคีย์, บันทึก `AdminAuditLog`; การกู้บัญชียังต้องผู้ดูแล 2 คน + timelock |
+| เมนูอ่านอย่างเดียวของผู้ดูแลไม่ต้อง step-up | รายการ KYC, รูปบัตร (บันทึก `kyc.view` ทุกครั้ง) และคำขอเปลี่ยนกุญแจ ต้องมีพาสคีย์ที่ลงทะเบียนแล้วแต่ไม่ต้องยืนยันซ้ำ; สลิป/วงส่วนตัวที่ผู้ดูแลเปิดดูได้ใช้สิทธิ์ role อย่างเดียว — ยอมรับเพราะไม่เปลี่ยนแปลงข้อมูล |
 | Audit ภายนอก | **จำเป็นก่อน mainnet** — รีวิวนี้เป็นการตรวจภายใน |
+
+## 4. พาสคีย์ผู้ดูแล (WebAuthn 2FA)
+
+การเข้าสู่ระบบด้วย LINE อย่างเดียวไม่พอสำหรับอำนาจผู้ดูแล (อนุมัติ KYC, ตั้งคะแนนเริ่มต้น, อนุมัติการเปลี่ยนกุญแจ)
+จึงเพิ่มปัจจัยที่สองเป็นพาสคีย์ (WebAuthn, `@simplewebauthn/server` + `@simplewebauthn/browser`) ซึ่งผูกกับโดเมน (กันฟิชชิง) และต้องยืนยันตัวผู้ใช้ (`userVerification: required` — สแกนนิ้ว/ใบหน้า/PIN ของเครื่อง)
+
+| เรื่อง | กติกา |
+| --- | --- |
+| route ที่เปลี่ยนแปลงข้อมูล (`POST /api/admin/kyc/:id/decision`, `POST /api/admin/key-rotations/:id/approve`, `.../reject`, `DELETE /api/admin/passkeys/:id`) | ต้อง **step-up**: ยืนยันพาสคีย์สำเร็จภายใน `ADMIN_STEPUP_TTL` วินาที (ค่าเริ่ม 900 = 15 นาที) ใน session นี้ — ไม่งั้นได้ `403 ADMIN_STEP_UP_REQUIRED` แล้ว PWA จะขอพาสคีย์และส่งรายการเดิมซ้ำให้ |
+| route อ่านอย่างเดียว (`GET /api/admin/kyc`, `GET /api/admin/kyc/:id/:file`, `GET /api/admin/key-rotations`) | ต้องมีพาสคีย์ที่ลงทะเบียนแล้ว ไม่งั้นได้ `403 ADMIN_PASSKEY_REQUIRED` (ไม่ต้อง step-up) |
+| สถานะ step-up | เก็บใน Redis `admin:stepup:<sha256(session token)>` พร้อม TTL — ผูกกับ login นั้น (เครื่อง/cookie อื่นของผู้ดูแลคนเดียวกันต้องยืนยันเอง) และหมดไปเมื่อ logout (`sessionVersion` เปลี่ยน) |
+| challenge | สุ่มโดย server เก็บใน Redis ผูกกับ session อายุ 5 นาที ใช้ได้ครั้งเดียว (`GETDEL`) — ส่ง assertion เดิมซ้ำจะได้ `WEBAUTHN_CHALLENGE_EXPIRED` |
+| พาสคีย์แรก (bootstrap) | ลงทะเบียนได้เฉพาะภายใน **15 นาทีหลังเข้าสู่ระบบ** (ดูจาก `iat` ของ session) ไม่งั้นได้ `ADMIN_REAUTH_REQUIRED`; การลงทะเบียนนับเป็น step-up |
+| พาสคีย์ถัดไป | ต้อง step-up ด้วยพาสคีย์เดิมก่อน; ควรมีอย่างน้อย 2 อุปกรณ์ |
+| ลบพาสคีย์ | ต้อง step-up; ลบอันสุดท้ายไม่ได้ (`ADMIN_LAST_PASSKEY`) ขณะที่ `ADMIN_PASSKEY_REQUIRED=true` |
+| counter | เก็บ signature counter และปฏิเสธถ้าถอยหลัง (ตรวจจับ authenticator ที่ถูก clone) |
+| ทำอุปกรณ์หายทั้งหมด | ผู้ดูแลระบบ (เข้าถึงเซิร์ฟเวอร์) รัน `cli/clear-admin-passkeys.js <userId> "<เหตุผล>"` หลังยืนยันตัวตนนอกระบบ → ลบพาสคีย์ทั้งหมด, เพิกถอนทุก session, บันทึก `admin.passkeys.cleared` ใน `AdminAuditLog` |
+| audit | `admin.passkey.register`, `admin.passkey.delete`, `admin.stepup`, `admin.stepup.failed`, `admin.passkeys.cleared` ใน `AdminAuditLog` และแจ้งเตือนผู้ดูแลทุกครั้งที่เพิ่ม/ลบพาสคีย์ |
+| development/test | `ADMIN_PASSKEY_REQUIRED` ค่าเริ่มเป็น `false` นอก production: ผู้ดูแลที่ยังไม่มีพาสคีย์ทำรายการได้ (ใช้ใน e2e) แต่เมื่อลงทะเบียนแล้วจะใช้กติกาเดียวกับ production; production ไม่ยอมเริ่มถ้าตั้งเป็น `false` หรือไม่ได้ตั้ง `WEBAUTHN_RP_ID`/`WEBAUTHN_ORIGIN` |

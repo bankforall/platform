@@ -42,6 +42,7 @@ pnpm --filter @bankforall/web dev                   # http://localhost:5173 (ม
 ```
 
 ทำให้ตัวเองเป็น admin (ตรวจ KYC): `cd apps/api && npx tsx src/cli/promote-admin.ts dev:<ชื่อที่ใช้ login>` แล้ว login ใหม่
+(ตอน development ไม่บังคับพาสคีย์ผู้ดูแล — ลองลงทะเบียนได้ที่ `/admin` → "ความปลอดภัยผู้ดูแล" บน `http://localhost:5173`; ล้างพาสคีย์: `npx tsx src/cli/clear-admin-passkeys.ts dev:<ชื่อ> "<เหตุผล>"`)
 
 ## ทดสอบ
 

@@ -15,6 +15,7 @@
     "db:migrate": "prisma migrate deploy",
     "db:generate": "prisma generate",
     "admin:promote": "node dist/cli/promote-admin.js",
+    "admin:clear-passkeys": "node dist/cli/clear-admin-passkeys.js",
     "test:e2e": "E2E=1 vitest run test/e2e.test.ts",
     "dev:signer": "tsx watch src/signer.ts",
     "start:signer": "node dist/signer.js"
@@ -28,6 +29,7 @@
     "@fastify/rate-limit": "^11.2.0",
     "@prisma/adapter-pg": "^7.10.0",
     "@prisma/client": "^7.10.0",
+    "@simplewebauthn/server": "^14.0.3",
     "fastify": "^5.12.5",
     "ioredis": "^6.0.0",
     "jose": "^6.2.12",

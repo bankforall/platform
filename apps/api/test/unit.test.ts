@@ -33,6 +33,8 @@ describe("config", () => {
     SMS_PROVIDER: "twilio",
     SIGNER_URL: "http://signer:4100",
     SIGNER_TOKEN: "t".repeat(32),
+    WEBAUTHN_RP_ID: "app.example.com",
+    WEBAUTHN_ORIGIN: "https://app.example.com",
   };
   const only = (keys: Record<string, string>) => ({
     ...prod,
@@ -67,6 +69,35 @@ describe("config", () => {
     expect(() => loadConfig("api", { ...api, PUBLIC_URL: "http://app.example.com" })).toThrow(/https/);
     expect(() => loadConfig("signer", only({ ATTESTER_PRIVATE_KEY: key(3), SIGNER_TOKEN: "short" }))).toThrow(
       /SIGNER_TOKEN/,
+    );
+  });
+
+  it("derives WebAuthn settings outside production and keeps admin passkeys optional there", () => {
+    const dev = loadConfig("api", { ...base, NODE_ENV: "development", PUBLIC_URL: "http://localhost:5173" });
+    expect(dev.WEBAUTHN_RP_ID).toBe("localhost");
+    expect(dev.WEBAUTHN_ORIGIN).toBe("http://localhost:5173");
+    expect(dev.ADMIN_PASSKEY_REQUIRED).toBe(false);
+    expect(dev.ADMIN_STEPUP_TTL).toBe(900);
+    expect(loadConfig("api", { ...base, NODE_ENV: "test", ADMIN_PASSKEY_REQUIRED: "true" }).ADMIN_PASSKEY_REQUIRED).toBe(true);
+    expect(() =>
+      loadConfig("api", { ...base, WEBAUTHN_RP_ID: "evil.com", WEBAUTHN_ORIGIN: "https://app.example.com" }),
+    ).toThrow(/WEBAUTHN_RP_ID/);
+  });
+
+  it("requires explicit WebAuthn settings and admin passkeys in production", () => {
+    const api = only({ RELAYER_PRIVATE_KEY: key(1) });
+    const c = loadConfig("api", api);
+    expect(c.ADMIN_PASSKEY_REQUIRED).toBe(true);
+    expect(c.WEBAUTHN_RP_ID).toBe("app.example.com");
+    // a parent domain is a valid RP ID
+    expect(loadConfig("api", { ...api, WEBAUTHN_RP_ID: "example.com" }).WEBAUTHN_RP_ID).toBe("example.com");
+    expect(() => loadConfig("api", { ...api, WEBAUTHN_RP_ID: "" })).toThrow(/WEBAUTHN_RP_ID: required/);
+    expect(() => loadConfig("api", { ...api, WEBAUTHN_ORIGIN: "" })).toThrow(/WEBAUTHN_ORIGIN: required/);
+    expect(() => loadConfig("api", { ...api, WEBAUTHN_ORIGIN: "http://app.example.com" })).toThrow(/https/);
+    expect(() => loadConfig("api", { ...api, ADMIN_PASSKEY_REQUIRED: "false" })).toThrow(/ADMIN_PASSKEY_REQUIRED/);
+    // only the api process uses them
+    expect(loadConfig("worker", only({ KEEPER_PRIVATE_KEY: key(2), WEBAUTHN_RP_ID: "", WEBAUTHN_ORIGIN: "" })).ROLE).toBe(
+      "worker",
     );
   });
 

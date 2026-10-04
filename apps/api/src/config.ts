@@ -70,13 +70,53 @@ const schema = z.object({
   WORKER_INTERVAL_MS: z.coerce.number().int().min(500).default(5000),
   /** Waiting time between the second admin approval and an account key switch. */
   KEY_ROTATION_DELAY_HOURS: z.coerce.number().min(0).default(24),
+
+  /**
+   * WebAuthn relying party for admin passkeys (second factor on top of LINE login).
+   * RP ID = the site's hostname (e.g. app.bankforall.co.th); origin = scheme://host[:port] the browser shows.
+   * Outside production both default to PUBLIC_URL; production must set them explicitly.
+   */
+  WEBAUTHN_RP_ID: z.string().default(""),
+  WEBAUTHN_ORIGIN: z.string().default(""),
+  WEBAUTHN_RP_NAME: z.string().min(1).default("Bank For All"),
+  /** Admins must enrol a passkey and step up before admin actions. Default: true in production, false otherwise. */
+  ADMIN_PASSKEY_REQUIRED: z
+    .enum(["true", "false", "1", "0", ""])
+    .default("")
+    .transform((v) => (v === "" ? undefined : v === "true" || v === "1")),
+  /** Seconds an admin session stays "admin-verified" after a passkey step-up. */
+  ADMIN_STEPUP_TTL: z.coerce.number().int().min(60).max(3600).default(900),
 });
 
-export type Config = z.infer<typeof schema> & { ROLE: Role };
+type Parsed = z.infer<typeof schema>;
+export type Config = Omit<Parsed, "ADMIN_PASSKEY_REQUIRED"> & { ADMIN_PASSKEY_REQUIRED: boolean; ROLE: Role };
 
 type Issue = { path: string; message: string };
 
-function validate(c: z.infer<typeof schema>, role: Role): Issue[] {
+/** Fills the WebAuthn defaults derived from PUBLIC_URL (non-production only) and ADMIN_PASSKEY_REQUIRED. */
+function resolve(c: Parsed): Omit<Config, "ROLE"> {
+  const prod = c.NODE_ENV === "production";
+  const pub = new URL(c.PUBLIC_URL);
+  return {
+    ...c,
+    WEBAUTHN_RP_ID: c.WEBAUTHN_RP_ID || (prod ? "" : pub.hostname),
+    WEBAUTHN_ORIGIN: c.WEBAUTHN_ORIGIN || (prod ? "" : pub.origin),
+    ADMIN_PASSKEY_REQUIRED: c.ADMIN_PASSKEY_REQUIRED ?? prod,
+  };
+}
+
+/** RP ID must be the origin's host or a registrable parent of it (WebAuthn §5.1.3). */
+export function rpIdMatchesOrigin(rpId: string, origin: string): boolean {
+  let host: string;
+  try {
+    host = new URL(origin).hostname;
+  } catch {
+    return false;
+  }
+  return host === rpId || host.endsWith(`.${rpId}`);
+}
+
+function validate(c: Omit<Config, "ROLE">, role: Role): Issue[] {
   const issues: Issue[] = [];
   const req = (key: keyof typeof c, why = "required") => {
     if (!c[key]) issues.push({ path: key, message: why });
@@ -118,6 +158,14 @@ function validate(c: z.infer<typeof schema>, role: Role): Issue[] {
       if (c.SMS_PROVIDER === "console") {
         issues.push({ path: "SMS_PROVIDER", message: "console SMS is not allowed in production" });
       }
+      req("WEBAUTHN_RP_ID", "required in production (admin passkeys)");
+      req("WEBAUTHN_ORIGIN", "required in production (admin passkeys)");
+      if (c.WEBAUTHN_ORIGIN && !c.WEBAUTHN_ORIGIN.startsWith("https://")) {
+        issues.push({ path: "WEBAUTHN_ORIGIN", message: "must be https in production" });
+      }
+      if (!c.ADMIN_PASSKEY_REQUIRED) {
+        issues.push({ path: "ADMIN_PASSKEY_REQUIRED", message: "must be true in production (admin 2FA)" });
+      }
     }
     if (role === "worker") {
       forbid("RELAYER_PRIVATE_KEY");
@@ -131,6 +179,9 @@ function validate(c: z.infer<typeof schema>, role: Role): Issue[] {
       issues.push({ path: "PUBLIC_URL", message: "must be https in production" });
     }
   }
+  if (role === "api" && c.WEBAUTHN_RP_ID && c.WEBAUTHN_ORIGIN && !rpIdMatchesOrigin(c.WEBAUTHN_RP_ID, c.WEBAUTHN_ORIGIN)) {
+    issues.push({ path: "WEBAUTHN_RP_ID", message: "must be the WEBAUTHN_ORIGIN hostname or a parent domain of it" });
+  }
   const keys = [c.RELAYER_PRIVATE_KEY, c.KEEPER_PRIVATE_KEY, c.ATTESTER_PRIVATE_KEY].filter(Boolean) as string[];
   if (new Set(keys.map((k) => k.toLowerCase())).size !== keys.length) {
     issues.push({ path: "RELAYER_PRIVATE_KEY", message: "relayer, keeper and attester keys must differ" });
@@ -140,11 +191,12 @@ function validate(c: z.infer<typeof schema>, role: Role): Issue[] {
 
 export function loadConfig(role: Role, env: NodeJS.ProcessEnv = process.env): Config {
   const parsed = schema.safeParse(env);
-  const issues: Issue[] = parsed.success
-    ? validate(parsed.data, role)
-    : parsed.error.issues.map((i) => ({ path: i.path.join("."), message: i.message }));
+  const resolved = parsed.success ? resolve(parsed.data) : undefined;
+  const issues: Issue[] = resolved
+    ? validate(resolved, role)
+    : parsed.error!.issues.map((i) => ({ path: i.path.join("."), message: i.message }));
   if (issues.length) {
     throw new Error(`Invalid configuration for ${role}:\n${issues.map((i) => `  ${i.path}: ${i.message}`).join("\n")}`);
   }
-  return { ...parsed.data!, ROLE: role };
+  return { ...resolved!, ROLE: role };
 }
