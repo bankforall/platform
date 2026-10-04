@@ -1,6 +1,7 @@
 import { Prisma, type PaymentStatus } from "../db.js";
 import { amountDue, circleAbi, circleFactoryAbi, formatBaht, type CircleRules } from "@bankforall/shared";
 import { parseEventLogs, type Log } from "viem";
+import { alert } from "../alert.js";
 import type { Ctx } from "../context.js";
 import { notify, notifyAddress } from "./notify.js";
 import { recomputeReputation } from "./reputation.js";
@@ -73,7 +74,12 @@ export async function ingestLogs(ctx: Ctx, logs: Log[]): Promise<number> {
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") continue; // already ingested
       // One bad event must not stop indexing for every circle: record it, alert, move on.
-      ctx.log.error({ err, tx: log.transactionHash, logIndex: log.logIndex, event: log.eventName }, "ALERT: ingest failed");
+      await alert(ctx, "ingest", "ingest failed — see the IngestError table", {
+        err,
+        tx: log.transactionHash,
+        logIndex: log.logIndex,
+        event: log.eventName,
+      });
       await ctx.db.ingestError
         .upsert({
           where: { txHash_logIndex: { txHash: log.transactionHash!, logIndex: log.logIndex! } },

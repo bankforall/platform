@@ -2,6 +2,9 @@ import { circleAbi, formatBaht } from "@bankforall/shared";
 import { encodeFunctionData, getAddress, type Address, type Hex } from "viem";
 import { need } from "../chain/clients.js";
 import { contractErrorName } from "../chain/errors.js";
+import { alert } from "../alert.js";
+import type { Circle, Slip } from "../db.js";
+import { SlipProviderError } from "../providers/slip.js";
 import type { Ctx } from "../context.js";
 import { ingestLogs } from "./ingest.js";
 import { notifyAddress } from "./notify.js";
@@ -62,7 +65,7 @@ async function tickCircle(ctx: Ctx, address: Address, circleId: string, now: num
       const unrevealed = await ctx.db.bidSecret.count({ where: { circleId, round: r, committed: true, revealed: false } });
       if (unrevealed > 0) {
         // the reveal window passed without the keeper opening these bids (worker down?) — they are lost
-        ctx.log.error({ circle: circleId, round: r, unrevealed }, "ALERT: sealed bids were never revealed");
+        await alert(ctx, `unrevealed:${circleId}:${r}`, "sealed bids were never revealed", { circle: circleId, round: r, unrevealed });
       }
       if (await call(ctx, address, "closeBidding", [])) sent++;
     }
@@ -114,55 +117,100 @@ async function call(ctx: Ctx, address: Address, functionName: string, args: unkn
 }
 
 /** Verifies uploaded slips and records verified ones on-chain (attester). */
+/**
+ * Provider/network errors leave the slip PENDING with a backoff (1, 2, 4 … 60 min); after
+ * SLIP_VERIFY_MAX_ATTEMPTS it becomes SKIPPED (the recipient's confirmation decides) and the operator
+ * is alerted. Idempotent: a slip leaves PENDING only once, with its verdict.
+ */
 export async function runSlipVerification(ctx: Ctx): Promise<void> {
-  const slips = await ctx.db.slip.findMany({ where: { verify: "PENDING" }, take: 20, include: { circle: true } });
+  const slips = await ctx.db.slip.findMany({
+    where: { verify: "PENDING", OR: [{ verifyAfter: null }, { verifyAfter: { lte: new Date() } }] },
+    orderBy: { createdAt: "asc" },
+    take: 20,
+    include: { circle: true },
+  });
   for (const slip of slips) {
-    const payment = await ctx.db.payment.findUnique({
-      where: { circleId_round_payer: { circleId: slip.circleId, round: slip.round, payer: slip.payer } },
-    });
-    const round = await ctx.db.round.findUnique({
-      where: { circleId_number: { circleId: slip.circleId, number: slip.round } },
-    });
-    const recipient = round?.recipient
-      ? await ctx.db.user.findUnique({ where: { walletAddress: round.recipient } })
-      : null;
-    if (!payment?.amount || !recipient?.promptPayId) {
-      await ctx.db.slip.update({ where: { id: slip.id }, data: { verify: "SKIPPED", verifyDetail: { reason: "missing payment or recipient" } } });
-      continue;
-    }
-    const image = await ctx.storage.get(slip.storageKey);
-    const result = await ctx.slipVerifier.verify({
-      image,
-      contentType: slip.contentType,
-      expectedAmount: payment.amount,
-      receiverPromptPayId: recipient.promptPayId,
-    });
-    let attestTx: string | null = null;
-    // the verdict is stored first: the signer re-checks it before attesting on-chain
-    await ctx.db.slip.update({ where: { id: slip.id }, data: { verify: result.status, verifyDetail: result.detail as object } });
-    if (result.status === "VERIFIED" && payment.status === "DECLARED" && slip.circle.address) {
-      try {
-        const hash = await ctx.signer.attestSlip(slip.id);
-        const receipt = await ctx.chain.publicClient.getTransactionReceipt({ hash });
-        await ingestLogs(ctx, receipt.logs);
-        attestTx = hash;
-      } catch (err) {
-        ctx.log.error({ err, slip: slip.id }, "slip attestation failed");
+    try {
+      await verifySlip(ctx, slip);
+    } catch (err) {
+      const attempts = slip.verifyAttempts + 1;
+      const operator = err instanceof SlipProviderError && err.operator;
+      if (operator) await alert(ctx, "slip-verifier:config", "slip verification provider needs attention (credentials, quota or branch setup)", { err });
+      if (attempts >= ctx.config.SLIP_VERIFY_MAX_ATTEMPTS) {
+        await ctx.db.slip.updateMany({
+          where: { id: slip.id, verify: "PENDING" },
+          data: { verify: "SKIPPED", verifyAttempts: attempts, verifyDetail: { reason: "verification provider unavailable", attempts } },
+        });
+        await alert(ctx, "slip-verifier:gave-up", `slip verification gave up after ${attempts} attempts — recipient confirmation decides`, {
+          slip: slip.id,
+          err,
+        });
+      } else {
+        const delayMs = Math.min(60, 2 ** (attempts - 1)) * 60_000;
+        await ctx.db.slip.updateMany({
+          where: { id: slip.id, verify: "PENDING" },
+          data: { verifyAttempts: attempts, verifyAfter: new Date(Date.now() + delayMs) },
+        });
+        ctx.log.warn({ err, slip: slip.id, attempts }, "slip verification will be retried");
       }
     }
-    if (result.status === "FAILED") {
-      await notifyAddress(ctx, slip.payer, {
-        kind: "slip_failed",
-        title: "ตรวจสอบสลิปไม่ผ่าน",
-        body: `สลิปรอบที่ ${slip.round} ไม่ตรงกับยอด ${formatBaht(payment.amount)} บาท หรือบัญชีผู้รับ กรุณาตรวจสอบ`,
-        circleId: slip.circleId,
-      });
+  }
+}
+
+async function verifySlip(ctx: Ctx, slip: Slip & { circle: Circle }): Promise<void> {
+  const payment = await ctx.db.payment.findUnique({
+    where: { circleId_round_payer: { circleId: slip.circleId, round: slip.round, payer: slip.payer } },
+  });
+  const round = await ctx.db.round.findUnique({
+    where: { circleId_number: { circleId: slip.circleId, number: slip.round } },
+  });
+  const recipient = round?.recipient
+    ? await ctx.db.user.findUnique({ where: { walletAddress: round.recipient } })
+    : null;
+  if (!payment?.amount || !recipient?.promptPayId) {
+    await ctx.db.slip.update({ where: { id: slip.id }, data: { verify: "SKIPPED", verifyDetail: { reason: "missing payment or recipient" } } });
+    return;
+  }
+  const image = await ctx.storage.get(slip.storageKey);
+  let result = await ctx.slipVerifier.verify({
+    image,
+    contentType: slip.contentType,
+    expectedAmount: payment.amount,
+    receiverPromptPayId: recipient.promptPayId,
+  });
+  // a "duplicate" after one of our own failed attempts may be that attempt reaching the provider:
+  // don't blame the payer, leave it to the recipient
+  if (result.status === "FAILED" && result.detail.code === 1012 && slip.verifyAttempts > 0) {
+    result = { status: "SKIPPED", detail: { ...result.detail, reason: "duplicate reported after a retry" } };
+  }
+  let attestTx: string | null = null;
+  // the verdict is stored first: the signer re-checks it before attesting on-chain
+  await ctx.db.slip.update({ where: { id: slip.id }, data: { verify: result.status, verifyDetail: result.detail as object } });
+  if (result.status === "VERIFIED" && payment.status === "DECLARED" && slip.circle.address) {
+    try {
+      const hash = await ctx.signer.attestSlip(slip.id);
+      const receipt = await ctx.chain.publicClient.getTransactionReceipt({ hash });
+      await ingestLogs(ctx, receipt.logs);
+      attestTx = hash;
+    } catch (err) {
+      await alert(ctx, "slip-attest", "slip attestation failed (signer or attester gas?)", { err, slip: slip.id });
     }
-    await ctx.db.slip.update({
-      where: { id: slip.id },
-      data: { verify: result.status, verifyDetail: result.detail as object, attestTx },
+  }
+  if (result.status === "FAILED") {
+    await notifyAddress(ctx, slip.payer, {
+      kind: "slip_failed",
+      title: "ตรวจสอบสลิปไม่ผ่าน",
+      body:
+        result.detail.code === 1012
+          ? `สลิปรอบที่ ${slip.round} เคยถูกส่งตรวจมาก่อนแล้ว (สลิปซ้ำ) กรุณาแนบสลิปของการโอนครั้งนี้`
+          : `สลิปรอบที่ ${slip.round} ไม่ตรงกับยอด ${formatBaht(payment.amount)} บาท หรือบัญชีผู้รับ กรุณาตรวจสอบ`,
+      circleId: slip.circleId,
     });
   }
+  await ctx.db.slip.update({
+    where: { id: slip.id },
+    data: { verify: result.status, verifyDetail: result.detail as object, attestTx },
+  });
 }
 
 /** Payment reminders (D-2, D-0, overdue), de-duplicated per payment. */

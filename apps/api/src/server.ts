@@ -1,15 +1,20 @@
 import { buildApp } from "./app.js";
-import { loadConfig } from "./config.js";
+import { configWarnings, loadConfig } from "./config.js";
 import { closeCtx, createCtx } from "./context.js";
 import { checkGas } from "./gas.js";
 import { createLogger } from "./logger.js";
+import { checkSigner } from "./ops.js";
 
 const config = loadConfig("api");
 const log = createLogger("api");
 const ctx = createCtx(config, log);
 await ctx.storage.ensureBucket();
 const app = await buildApp(ctx);
-const gasTimer = setInterval(() => void checkGas(ctx, "relayer", ctx.chain.relayer).catch(() => {}), 60_000);
+for (const w of configWarnings(config)) log.warn(`config: ${w}`);
+const gasTimer = setInterval(() => {
+  void checkGas(ctx, "relayer", ctx.chain.relayer).catch(() => {});
+  void checkSigner(ctx);
+}, 60_000);
 gasTimer.unref();
 void checkGas(ctx, "relayer", ctx.chain.relayer).catch(() => {});
 

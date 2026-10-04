@@ -17,6 +17,31 @@ const hexKey = z.string().regex(/^0x[0-9a-fA-F]{64}$/, "must be a 0x-prefixed 32
 const optionalKey = z.union([hexKey, z.literal("")]).default("").transform((v) => v || undefined);
 const address = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
 
+/** Production operations integrations (alerting, heartbeat, Thai SMS, slip verification). See docs/v2/deployment.md. */
+const opsSchema = {
+  ALERT_WEBHOOK_URL: z.union([z.string().url(), z.literal("")]).default(""),
+  ALERT_WEBHOOK_FORMAT: z.enum(["slack", "discord", "json"]).default("json"),
+  /** LINE group/user id that receives alerts (uses LINE_MESSAGING_TOKEN). */
+  ALERT_LINE_TO: z.string().default(""),
+  /** The same alert key is sent at most once per this window. */
+  ALERT_THROTTLE_MINUTES: z.coerce.number().min(0).default(30),
+  /** Alert after a worker job fails this many ticks in a row. */
+  ALERT_JOB_FAILURES: z.coerce.number().int().min(1).default(5),
+  /** Alert when the indexer is this many blocks behind the chain head (Base ≈ 2 s per block). */
+  INDEXER_LAG_ALERT_BLOCKS: z.coerce.number().int().min(1).default(300),
+  /** Pinged (GET) by the worker after each successful loop, e.g. a healthchecks.io / Uptime Kuma push URL. */
+  HEARTBEAT_URL: z.union([z.string().url(), z.literal("")]).default(""),
+  THAIBULKSMS_API_KEY: z.string().default(""),
+  THAIBULKSMS_API_SECRET: z.string().default(""),
+  THAIBULKSMS_SENDER: z.string().default(""),
+  /** "standard" | "corporate" overrides the dashboard SMS type; empty = dashboard setting. */
+  THAIBULKSMS_FORCE: z.enum(["", "standard", "corporate"]).default(""),
+  SLIPOK_BRANCH_ID: z.string().default(""),
+  SLIPOK_API_KEY: z.string().default(""),
+  /** Provider/network errors tolerated per slip before it is marked SKIPPED (recipient confirms instead). */
+  SLIP_VERIFY_MAX_ATTEMPTS: z.coerce.number().int().min(1).default(8),
+};
+
 const schema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().int().default(4000),
@@ -35,7 +60,7 @@ const schema = z.object({
   LINE_MESSAGING_TOKEN: z.string().default(""),
   DEV_LOGIN: bool,
 
-  SMS_PROVIDER: z.enum(["console", "twilio"]).default("console"),
+  SMS_PROVIDER: z.enum(["console", "twilio", "thaibulksms"]).default("console"),
   TWILIO_ACCOUNT_SID: z.string().default(""),
   TWILIO_AUTH_TOKEN: z.string().default(""),
   TWILIO_FROM: z.string().default(""),
@@ -65,11 +90,12 @@ const schema = z.object({
 
   /** Warn (health + logs) when a gas-paying account holds less than this. */
   MIN_GAS_BALANCE_WEI: z.coerce.bigint().default(3_000_000_000_000_000n),
-  SLIP_VERIFIER: z.enum(["none"]).default("none"),
+  SLIP_VERIFIER: z.enum(["none", "slipok"]).default("none"),
   /** Worker loop interval. */
   WORKER_INTERVAL_MS: z.coerce.number().int().min(500).default(5000),
   /** Waiting time between the second admin approval and an account key switch. */
   KEY_ROTATION_DELAY_HOURS: z.coerce.number().min(0).default(24),
+  ...opsSchema,
 });
 
 export type Config = z.infer<typeof schema> & { ROLE: Role };
@@ -131,11 +157,29 @@ function validate(c: z.infer<typeof schema>, role: Role): Issue[] {
       issues.push({ path: "PUBLIC_URL", message: "must be https in production" });
     }
   }
+  // ops integrations: provider credentials are required only where they are used
+  if (role === "api" && c.SMS_PROVIDER === "thaibulksms") {
+    for (const k of ["THAIBULKSMS_API_KEY", "THAIBULKSMS_API_SECRET", "THAIBULKSMS_SENDER"] as const) req(k, "required when SMS_PROVIDER=thaibulksms");
+  }
+  if (role === "worker" && c.SLIP_VERIFIER === "slipok") {
+    for (const k of ["SLIPOK_BRANCH_ID", "SLIPOK_API_KEY"] as const) req(k, "required when SLIP_VERIFIER=slipok");
+  }
+  if (c.ALERT_LINE_TO && role !== "signer" && !c.LINE_MESSAGING_TOKEN) req("LINE_MESSAGING_TOKEN", "required when ALERT_LINE_TO is set");
   const keys = [c.RELAYER_PRIVATE_KEY, c.KEEPER_PRIVATE_KEY, c.ATTESTER_PRIVATE_KEY].filter(Boolean) as string[];
   if (new Set(keys.map((k) => k.toLowerCase())).size !== keys.length) {
     issues.push({ path: "RELAYER_PRIVATE_KEY", message: "relayer, keeper and attester keys must differ" });
   }
   return issues;
+}
+
+/** Non-fatal production findings, logged at startup (see docs/v2/deployment.md for why these warn instead of fail). */
+export function configWarnings(c: Config): string[] {
+  const w: string[] = [];
+  if (c.NODE_ENV !== "production") return w;
+  const lineAlerts = c.ROLE !== "signer" && c.ALERT_LINE_TO && c.LINE_MESSAGING_TOKEN;
+  if (!c.ALERT_WEBHOOK_URL && !lineAlerts) w.push("no alert channel (ALERT_WEBHOOK_URL / ALERT_LINE_TO): ALERT: lines go to logs only");
+  if (c.ROLE === "worker" && !c.HEARTBEAT_URL) w.push("HEARTBEAT_URL is empty: nobody is told if the worker stops");
+  return w;
 }
 
 export function loadConfig(role: Role, env: NodeJS.ProcessEnv = process.env): Config {

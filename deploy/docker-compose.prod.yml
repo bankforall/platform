@@ -24,6 +24,12 @@ x-api-image: &api-image
     target: runtime
   image: ${IMAGE_REGISTRY:-ghcr.io/bankforall}/platform-api:${IMAGE_TAG:-latest}
 
+# alert channels (docs/v2/deployment.md "การแจ้งเตือน"): api, worker and signer all raise alerts
+x-alert-env: &alert-env
+  ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
+  ALERT_WEBHOOK_FORMAT: ${ALERT_WEBHOOK_FORMAT:-json}
+  ALERT_THROTTLE_MINUTES: ${ALERT_THROTTLE_MINUTES:-30}
+
 # shared by api + worker (not the signer)
 x-app-env: &app-env
   NODE_ENV: production
@@ -37,10 +43,6 @@ x-app-env: &app-env
   LINE_CHANNEL_ID: ${LINE_CHANNEL_ID}
   LINE_CHANNEL_SECRET: ${LINE_CHANNEL_SECRET}
   LINE_MESSAGING_TOKEN: ${LINE_MESSAGING_TOKEN:-}
-  SMS_PROVIDER: ${SMS_PROVIDER}
-  TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
-  TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
-  TWILIO_FROM: ${TWILIO_FROM:-}
   S3_ENDPOINT: ${S3_ENDPOINT}
   S3_REGION: ${S3_REGION:-us-east-1}
   S3_BUCKET: ${S3_BUCKET}
@@ -59,6 +61,8 @@ x-app-env: &app-env
   SIGNER_TOKEN: ${SIGNER_TOKEN}
   SLIP_VERIFIER: ${SLIP_VERIFIER:-none}
   KEY_ROTATION_DELAY_HOURS: ${KEY_ROTATION_DELAY_HOURS:-24}
+  <<: *alert-env
+  ALERT_LINE_TO: ${ALERT_LINE_TO:-}
 
 x-depends: &depends
   postgres: { condition: service_healthy }
@@ -97,6 +101,15 @@ services:
       PORT: "4000"
       DEV_LOGIN: "false"
       RELAYER_PRIVATE_KEY: ${RELAYER_PRIVATE_KEY}
+      # OTP SMS is sent by the api only
+      SMS_PROVIDER: ${SMS_PROVIDER}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+      TWILIO_FROM: ${TWILIO_FROM:-}
+      THAIBULKSMS_API_KEY: ${THAIBULKSMS_API_KEY:-}
+      THAIBULKSMS_API_SECRET: ${THAIBULKSMS_API_SECRET:-}
+      THAIBULKSMS_SENDER: ${THAIBULKSMS_SENDER:-}
+      THAIBULKSMS_FORCE: ${THAIBULKSMS_FORCE:-}
     expose: ["4000"]
     depends_on:
       <<: *depends
@@ -111,6 +124,13 @@ services:
       <<: *app-env
       KEEPER_PRIVATE_KEY: ${KEEPER_PRIVATE_KEY}
       WORKER_INTERVAL_MS: ${WORKER_INTERVAL_MS:-5000}
+      HEARTBEAT_URL: ${HEARTBEAT_URL:-}
+      ALERT_JOB_FAILURES: ${ALERT_JOB_FAILURES:-5}
+      INDEXER_LAG_ALERT_BLOCKS: ${INDEXER_LAG_ALERT_BLOCKS:-300}
+      # slips are verified by the worker only
+      SLIPOK_BRANCH_ID: ${SLIPOK_BRANCH_ID:-}
+      SLIPOK_API_KEY: ${SLIPOK_API_KEY:-}
+      SLIP_VERIFY_MAX_ATTEMPTS: ${SLIP_VERIFY_MAX_ATTEMPTS:-8}
     healthcheck:
       disable: true
     depends_on:
@@ -136,6 +156,8 @@ services:
       SIGNER_TOKEN: ${SIGNER_TOKEN}
       SIGNER_PORT: "4100"
       MIN_GAS_BALANCE_WEI: ${MIN_GAS_BALANCE_WEI:-3000000000000000}
+      PUBLIC_URL: ${PUBLIC_URL}
+      <<: *alert-env
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4100/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s

@@ -1,6 +1,7 @@
 import { circleAbi, keyRotationMessage, type KeyRotationView } from "@bankforall/shared";
 import { encodeFunctionData, getAddress, verifyMessage, type Address, type Hex } from "viem";
 import { need } from "../chain/clients.js";
+import { alert } from "../alert.js";
 import type { Ctx } from "../context.js";
 import { Prisma, type KeyRotationRequest, type User } from "../db.js";
 import { badRequest, conflict, forbidden, notFound } from "../errors.js";
@@ -182,7 +183,7 @@ export async function executeDueRotations(ctx: Ctx): Promise<void> {
       });
       ctx.log.warn({ requestId: r.id, circles: sigs.length }, "key rotation executed");
     } catch (err) {
-      ctx.log.error({ err, requestId: r.id }, "ALERT: key rotation failed");
+      await alert(ctx, `rotation:${r.id}`, "key rotation failed", { err, requestId: r.id });
       await ctx.db.keyRotationRequest.update({
         where: { id: r.id },
         data: { status: "FAILED", reason: String((err as Error).message).slice(0, 500) },
