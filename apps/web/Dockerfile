@@ -5,7 +5,7 @@
 #     --build-arg VITE_FORWARDER_ADDRESS=0x… --build-arg VITE_FACTORY_ADDRESS=0x… .
 # The chain and contract addresses are pinned into the bundle: the app refuses to sign anything
 # for another chain/forwarder/factory, even if the API says otherwise.
-FROM node:24-trixie-slim AS build
+FROM node:26-trixie-slim AS build
 ARG VITE_CHAIN_ID
 ARG VITE_FORWARDER_ADDRESS
 ARG VITE_FACTORY_ADDRESS
