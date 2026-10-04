@@ -31,7 +31,8 @@ Internet ──443──▶ web (Caddy: PWA + /api proxy, TLS) ──▶ api:400
 
 | กุญแจ | หน้าที่ | เก็บที่ | ต้องมี ETH |
 | --- | --- | --- | --- |
-| **Admin** | `DEFAULT_ADMIN_ROLE` ของ factory (pause, setCaps, จัดการ role) | **hardware wallet / multisig (Safe)** — ห้ามอยู่บนเซิร์ฟเวอร์ | เล็กน้อย |
+| **Admin** | `DEFAULT_ADMIN_ROLE` ของ factory (unpause, setCaps, setPolicy, จัดการ role) — โอนได้แบบ 2 ขั้น + รอ 2 วันเท่านั้น | **Safe multisig** (เช่น 2-of-3 hardware wallet) — ใช้ deployer key แค่ช่วง deploy แล้วโอนตาม §2.1 | เล็กน้อย (ใน Safe) |
+| **Pauser** | `PAUSER_ROLE`: `pause()` ได้อย่างเดียว (หยุดฉุกเฉิน) — เปิดกลับต้องใช้ admin | กุญแจของผู้ดูแลเวร (hardware wallet แยก) ไม่อยู่บนเซิร์ฟเวอร์ | เล็กน้อย |
 | **Attester** | ลงนามรับรอง KYC, key rotation, `attestSlip` | container `signer` เท่านั้น (ไม่เปิดพอร์ตออกนอก, ตรวจนโยบายกับ DB ก่อนลงนาม) | ~0.005 ETH |
 | **Relayer** | ส่ง transaction แทนผู้ใช้ (จ่าย gas) | container `api` เท่านั้น | ~0.02 ETH |
 | **Keeper** | เดินวงตามเวลา (เปิดซอง, ปิดประมูล, ผิดนัด, ยอมรับแจ้งโอนที่ผู้รับไม่ตอบ, รอบถัดไป, เปลี่ยนกุญแจที่อนุมัติแล้ว) | container `worker` เท่านั้น | ~0.01 ETH |
@@ -57,6 +58,22 @@ forge script script/Deploy.s.sol --rpc-url https://sepolia.base.org \
 ```
 
 สำหรับ mainnet ใช้ `--rpc-url https://mainnet.base.org` (chain 8453) **หลังผ่าน security audit ภายนอกแล้วเท่านั้น**
+
+### 2.1 โอน admin ไป Safe multisig (ต้องทำทุก deployment ที่ใช้จริง)
+
+factory ใช้ `AccessControlDefaultAdminRules`: มี admin ได้คนเดียว โอนด้วย `grantRole` ไม่ได้ ต้อง **เริ่มโอน → รอ 2 วัน → ผู้รับกดรับ**
+ถ้าพิมพ์ address ผิดหรือ deployer key หลุดระหว่างนั้น ยกเลิกได้ด้วย `cancelDefaultAdminTransfer()`
+
+1. สร้าง Safe บน Base (app.safe.global) เช่น 2-of-3 จาก hardware wallet ของผู้ดูแลต่างคนกัน
+2. deployer (admin ปัจจุบัน) เริ่มโอน พร้อมตั้ง pauser และ (ถ้าต้องการ) เปลี่ยน attester:
+   ```bash
+   FACTORY=<factory> SAFE=<safe> PAUSER=<pauser address>    forge script script/HandOverAdmin.s.sol --rpc-url $RPC_URL --account deployer --broadcast
+   ```
+3. หลังเวลาที่ script พิมพ์ (≥ 2 วัน): ใน Safe → *New transaction → Transaction Builder* → to = factory,
+   method `acceptDefaultAdminTransfer()` → ให้ผู้ลงนามครบ quorum → execute
+4. ตรวจ: `cast call <factory> "defaultAdmin()(address)"` ต้องได้ address ของ Safe แล้วลบ deployer key ออกจากเครื่อง
+
+ต่อจากนี้ทุกการเปลี่ยนค่า (`setCaps`, `setPolicy`, `unpause`, เปลี่ยน attester) ทำผ่าน Safe ซึ่งต้องลงนามหลายคน
 
 ## 3. ติดตั้งบนเซิร์ฟเวอร์
 
@@ -112,7 +129,7 @@ web image ฝัง chain และ contract ที่จะยอมลงน�
 | `APP_ENCRYPTION_KEY` หาย | ไฟล์ KYC/สลิป/ซองประมูลที่เก็บไว้อ่านไม่ได้ถาวร → **เก็บสำเนา key แบบ offline 2 ที่** |
 | ผู้ใช้เปลี่ยนเครื่อง | ผู้ใช้กู้คืนเองด้วยรหัสกู้คืน (หน้า "กู้คืนบัญชี") |
 | ผู้ใช้หายทั้งเครื่องและรหัสกู้คืน | ผู้ใช้ login ด้วย LINE ในเครื่องใหม่ → "ลืมรหัสกู้คืนหรือทำเครื่องหาย" สร้างกุญแจใหม่และลงนามคำขอ → ผู้ดูแล 2 คน (คนละคน) ยืนยันตัวตนแล้วอนุมัติใน `/admin` → รอ `KEY_ROTATION_DELAY_HOURS` (ค่าเริ่ม 24 ชม., ผู้ใช้ยกเลิกได้และได้รับแจ้งเตือน) → worker ขอลายเซ็นจาก signer แล้วเรียก `rotateMember` ในทุกวงที่ยังดำเนินอยู่ (บันทึก `MemberRotated` เป็นหลักฐาน) |
-| ต้องหยุดระบบฉุกเฉิน | admin เรียก `factory.pause()` → ทุกวงหยุดรับรายการบน chain ทันที |
+| ต้องหยุดระบบฉุกเฉิน | pauser (หรือ Safe) เรียก `factory.pause()` → ทุกวงหยุดรับรายการบน chain ทันที; เปิดกลับด้วย Safe `unpause()` (เส้นตายถูกขยายให้อัตโนมัติ — decisions D6) |
 | worker ค้าง | `docker compose ... restart worker` (ทำงานต่อจาก cursor ได้; รันหลายตัวได้ มี lease กันซ้ำ) |
 
 ## 6. สิ่งที่ยังต้องทำก่อนเปิดให้คนทั่วไปใช้

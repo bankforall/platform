@@ -146,7 +146,7 @@ contract RotationDuringBiddingTest is BaseTest {
 
 contract FactoryHardeningTest is BaseTest {
     function test_constructorRejectsZeroAddresses() public {
-        vm.expectRevert(CircleFactory.InvalidParams.selector);
+        vm.expectRevert(abi.encodeWithSignature("AccessControlInvalidDefaultAdmin(address)", address(0)));
         new CircleFactory(address(0), attester, address(forwarder));
         vm.expectRevert(CircleFactory.InvalidParams.selector);
         new CircleFactory(admin, address(0), address(forwarder));

@@ -43,6 +43,6 @@ Static analysis (Slither, ไม่รวม detector ที่ยอมรั�
 | วงที่ถูกทิ้ง (L4) | วงที่ยังไม่เริ่มยกเลิกได้โดยใครก็ได้หลัง 30 วัน (worker ทำให้); วงที่เริ่มแล้วเดินต่อเองจนจบ — การเลิกวงกลางคันยังไม่รองรับ ([D4](./decisions.md)) |
 | Reorg หลังบันทึกจาก receipt ทันที (L10) | ความเสี่ยงต่ำบน Base; indexer ใช้ `CONFIRMATIONS` |
 | XSS = ใช้กุญแจในเครื่องได้ (L11) | CSP เข้มงวด, ไม่มี HTML จากผู้ใช้; ข้อจำกัดของกุญแจในเบราว์เซอร์ |
-| Factory admin เป็น EOA (L15) | **ต้องย้ายไป multisig (Safe) ก่อนขึ้น mainnet** |
+| Factory admin (L15) | โอนได้แบบ 2 ขั้นและรอ 2 วันเท่านั้น (`AccessControlDefaultAdminRules`) + script `HandOverAdmin.s.sol`; pauser แยกที่หยุดระบบได้แต่เปิดกลับไม่ได้ — **ต้องทำตาม [deployment §2.1](./deployment.md#21-โอน-admin-ไป-safe-multisig-ต้องทำทุก-deployment-ที่ใช้จริง) ก่อน mainnet** |
 | Admin ใช้ LINE login อย่างเดียว | ลดความเสี่ยงด้วย 2-person rule + timelock; ควรเพิ่ม WebAuthn สำหรับ admin |
 | Audit ภายนอก | **จำเป็นก่อน mainnet** — รีวิวนี้เป็นการตรวจภายใน |

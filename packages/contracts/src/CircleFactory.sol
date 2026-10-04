@@ -2,6 +2,9 @@
 pragma solidity ^0.8.37;
 
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
+import {
+    AccessControlDefaultAdminRules
+} from "@openzeppelin/contracts/access/extensions/AccessControlDefaultAdminRules.sol";
 import {Context} from "@openzeppelin/contracts/utils/Context.sol";
 import {ERC2771Context} from "@openzeppelin/contracts/metatx/ERC2771Context.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
@@ -18,8 +21,14 @@ import {Attestation, CircleParams, CircleType} from "./CircleTypes.sol";
 /// @dev No function moves money: circles only record what members transfer to each other off-chain.
 ///      Users sign their actions in the browser; a relayer submits them through the trusted
 ///      ERC-2771 forwarder and pays the gas, so `_msgSender()` is always the signing user.
-contract CircleFactory is AccessControl, Pausable, EIP712, ERC2771Context {
+///      The admin (a Safe multisig in production) can only be handed over in two steps with a
+///      delay, so a mistyped or compromised transfer can be cancelled; a separate pauser key can
+///      stop the system in an emergency but only the admin can resume it.
+contract CircleFactory is AccessControlDefaultAdminRules, Pausable, EIP712, ERC2771Context {
     bytes32 public constant ATTESTER_ROLE = keccak256("ATTESTER_ROLE");
+    bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
+    /// @notice Initial wait between starting and accepting an admin handover (changeable, itself delayed).
+    uint48 public constant INITIAL_ADMIN_DELAY = 2 days;
     bytes32 public constant ATTESTATION_TYPEHASH =
         keccak256("Attestation(address subject,address circle,uint32 reputation,uint64 deadline)");
     bytes32 public constant KEY_ROTATION_TYPEHASH =
@@ -57,11 +66,11 @@ contract CircleFactory is AccessControl, Pausable, EIP712, ERC2771Context {
     error NotCircle();
 
     constructor(address admin, address attester, address forwarder)
+        AccessControlDefaultAdminRules(INITIAL_ADMIN_DELAY, admin)
         EIP712("BankForAll", "1")
         ERC2771Context(forwarder)
     {
         if (admin == address(0) || attester == address(0) || forwarder == address(0)) revert InvalidParams();
-        _grantRole(DEFAULT_ADMIN_ROLE, admin);
         _grantRole(ATTESTER_ROLE, attester);
         implementation = address(new Circle(forwarder));
     }
@@ -176,7 +185,12 @@ contract CircleFactory is AccessControl, Pausable, EIP712, ERC2771Context {
         return uint128((uint256(principal) * maxAnnualRateBps * period) / (365 days * 10_000));
     }
 
-    function pause() external onlyRole(DEFAULT_ADMIN_ROLE) {
+    error NotPauser();
+
+    /// @notice Emergency stop: the admin or a holder of PAUSER_ROLE (a hot ops key) may pause.
+    function pause() external {
+        address sender = _msgSender();
+        if (!hasRole(PAUSER_ROLE, sender) && sender != defaultAdmin()) revert NotPauser();
         _pause();
     }
 
