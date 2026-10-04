@@ -1,0 +1,24 @@
+name: Bug report / แจ้งปัญหา
+description: Something does not work as expected
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: "⚠️ Security issues must be reported privately — see SECURITY.md."
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options: [web app, API / worker, smart contracts, deployment, docs]
+    validations: { required: true }
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened? / เกิดอะไรขึ้น
+      description: Steps to reproduce, expected vs actual behaviour
+    validations: { required: true }
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: Commit / version, browser or device, local or deployed

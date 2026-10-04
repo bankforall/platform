@@ -1,4 +1,15 @@
-# Bank For All — platform (v2)
+# Bank For All — platform
+
+[![CI](https://github.com/bankforall/platform/actions/workflows/ci.yml/badge.svg)](https://github.com/bankforall/platform/actions/workflows/ci.yml)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
+
+**A transparent peer-share (ROSCA, Thai _เปียแชร์_) platform that never holds anyone's money.**
+Members pay each other directly with PromptPay; smart contracts on Base decide who receives the pool each round,
+enforce the rules and keep tamper-proof evidence. Every action is signed with a key that never leaves the user's
+phone — no crypto knowledge needed. Built with Solidity, TypeScript, Fastify, Prisma, React and Playwright.
+Documentation is mostly in Thai — see [`docs/v2`](docs/v2/README.md).
+
+---
 
 แพลตฟอร์มเปียแชร์ที่ **ไม่ถือเงิน**: สมาชิกโอนกันเองผ่าน PromptPay ส่วน smart contract บน Base ทำหน้าที่ตัดสินผู้รับแต่ละรอบ
 บังคับกติกา และเก็บหลักฐานที่ปลอมไม่ได้ ผู้ใช้ลงนามทุกรายการด้วยกุญแจในเครื่องของตัวเอง (ไม่ต้องรู้จัก crypto)
@@ -49,3 +60,8 @@ pnpm --filter @bankforall/e2e test                         # เบราว์�
 - แก้ contract แล้วรัน `pnpm --filter @bankforall/contracts build` เพื่อ export ABI ไปที่ shared
 - ตาราง Circle/Membership/Round/Payment เขียนได้จาก `services/ingest.ts` เท่านั้น
 - ห้ามนำข้อมูลส่วนบุคคลขึ้น chain; จำนวนเงินเป็นสตางค์ (bigint) เสมอ
+
+## License
+
+[GNU AGPL-3.0](LICENSE). If you run a modified version as a service, you must offer its source code to your users.
+Security issues: see [SECURITY.md](SECURITY.md). Contributions: [CONTRIBUTING.md](CONTRIBUTING.md).

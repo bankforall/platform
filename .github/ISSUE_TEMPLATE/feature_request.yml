@@ -1,0 +1,14 @@
+name: Feature request / เสนอฟีเจอร์
+description: Suggest an idea or improvement
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / ปัญหาที่ต้องการแก้
+      description: Who is affected and why does it matter?
+    validations: { required: true }
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal / แนวทางที่เสนอ

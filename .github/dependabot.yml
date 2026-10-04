@@ -1,0 +1,19 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 10
+    cooldown: { default-days: 3 }   # same idea as pnpm minimumReleaseAge
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+  - package-ecosystem: docker
+    directories: [/apps/api, /apps/web]
+    schedule: { interval: weekly }
+  - package-ecosystem: gitsubmodule
+    directory: /
+    schedule: { interval: monthly }
