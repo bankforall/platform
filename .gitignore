@@ -12,3 +12,4 @@ packages/contracts/cache/
 packages/contracts/broadcast/
 packages/contracts/deployments/31337.json
 apps/api/src/generated/
+.claude/
