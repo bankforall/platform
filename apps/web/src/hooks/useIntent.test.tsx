@@ -1,28 +1,41 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { verifyTypedData } from "viem";
-import { forwardRequestTypes, toTypedDataMessage, type PreparedIntent } from "@bankforall/shared";
+import { encodeFunctionData, verifyTypedData } from "viem";
+import { circleAbi, forwardRequestTypes, toTypedDataMessage, type PreparedIntent } from "@bankforall/shared";
 import { ToastProvider } from "@/components/overlay";
 import { IntentProvider, useIntent } from "./useIntent";
 import { clearDevice, newPrivateKey, setPin, storeLocalKey } from "@/wallet/device";
 
-function intentFor(from: `0x${string}`): PreparedIntent {
+const CIRCLE = "0x00000000000000000000000000000000000000c1";
+const PAYER = "0x00000000000000000000000000000000000000a1";
+// Matches the pins in vite.config.ts (test.env).
+const CONFIG = {
+  chainId: 84532,
+  forwarder: "0x00000000000000000000000000000000000000f0",
+  factory: "0x00000000000000000000000000000000000000fa",
+  explorerUrl: null,
+  lineLoginEnabled: false,
+  devLoginEnabled: true,
+};
+const SUMMARY = "ยืนยันว่าได้รับเงิน 1,000 บาท จาก สมหญิง แล้ว";
+
+function intentFor(from: `0x${string}`, to: string = CIRCLE): PreparedIntent {
   return {
     id: "int_1",
-    kind: "join",
-    summary: "เข้าร่วมวง ทดสอบ ที่นั่ง 1",
+    kind: "confirmReceipt",
+    summary: SUMMARY,
     typedData: {
-      domain: { name: "BankForAllForwarder", version: "1", chainId: 84532, verifyingContract: "0x00000000000000000000000000000000000000f0" },
+      domain: { name: "BankForAllForwarder", version: "1", chainId: 84532, verifyingContract: CONFIG.forwarder },
       primaryType: "ForwardRequest",
       message: {
         from,
-        to: "0x00000000000000000000000000000000000000c1",
+        to,
         value: "0",
         gas: "300000",
         nonce: "7",
         deadline: 1_900_000_000,
-        data: "0x1234",
+        data: encodeFunctionData({ abi: circleAbi, functionName: "confirmReceipt", args: [PAYER] }),
       },
     },
   };
@@ -31,11 +44,23 @@ function intentFor(from: `0x${string}`): PreparedIntent {
 function Harness({ prepare, onResult }: { prepare: () => Promise<PreparedIntent>; onResult: (r: unknown) => void }) {
   const { run } = useIntent();
   return (
-    <button onClick={() => void run({ title: "ทดสอบ", prepare, bid: { amount: "500", salt: "0x" + "ab".repeat(32) } }).then(onResult)}>
+    <button
+      onClick={() =>
+        void run({
+          title: "ทดสอบ",
+          prepare,
+          expect: { kind: "confirmReceipt", circle: CIRCLE, payer: PAYER },
+          display: { members: [{ address: PAYER, displayName: "สมหญิง" }] },
+          bid: { amount: "500", salt: "0x" + "ab".repeat(32) },
+        }).then(onResult)
+      }
+    >
       go
     </button>
   );
 }
+
+const HEADLINE = "ยืนยันว่าได้รับเงินจาก สมหญิง";
 
 function renderHarness(prepare: () => Promise<PreparedIntent>, onResult: (r: unknown) => void) {
   const qc = new QueryClient();
@@ -67,28 +92,37 @@ describe("useIntent", () => {
     address = await storeLocalKey(newPrivateKey());
     await setPin("482913");
     fetchMock.mockReset();
+    fetchMock.mockImplementation((url: string) =>
+      Promise.resolve(
+        url === "/api/config"
+          ? new Response(JSON.stringify(CONFIG), { status: 200 })
+          : new Response(JSON.stringify({ id: "int_1", kind: "confirmReceipt", status: "CONFIRMED", txHash: "0xab", error: null, circleId: "c1" }), {
+              status: 200,
+            }),
+      ),
+    );
     vi.stubGlobal("fetch", fetchMock);
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it("signs the forward request on-device and submits the signature with the bid secret", async () => {
+  const submits = () => fetchMock.mock.calls.filter(([url]) => String(url).startsWith("/api/intents/"));
+
+  it("renders the decoded call, signs on-device and submits the signature", async () => {
     const intent = intentFor(address);
-    fetchMock.mockResolvedValue(
-      new Response(JSON.stringify({ id: "int_1", kind: "join", status: "CONFIRMED", txHash: "0xab", error: null, circleId: "c1" }), { status: 200 }),
-    );
     const onResult = vi.fn();
     renderHarness(() => Promise.resolve(intent), onResult);
 
     fireEvent.click(screen.getByText("go"));
-    expect(await screen.findByText(intent.summary)).toBeInTheDocument();
+    expect(await screen.findByText(HEADLINE)).toBeInTheDocument();
+    expect(screen.getByText(SUMMARY)).toBeInTheDocument(); // server text only as secondary
     await typePin("482913");
 
     expect(await screen.findByText("บันทึกถาวรแล้ว", {}, { timeout: 5000 })).toBeInTheDocument();
-    const [url, init] = fetchMock.mock.calls[0]!;
+    const [url, init] = submits()[0]!;
     expect(url).toBe("/api/intents/int_1/submit");
     expect((init as RequestInit).headers).toMatchObject({ "x-requested-with": "bankforall" });
     const body = JSON.parse((init as RequestInit).body as string);
-    expect(body.bid).toEqual({ amount: "500", salt: "0x" + "ab".repeat(32) });
+    expect(body.bid).toBeUndefined(); // the bid secret only travels with commitBid
 
     const valid = await verifyTypedData({
       address,
@@ -107,18 +141,35 @@ describe("useIntent", () => {
   it("does not submit with a wrong PIN", async () => {
     renderHarness(() => Promise.resolve(intentFor(address)), vi.fn());
     fireEvent.click(screen.getByText("go"));
-    await screen.findByText("เข้าร่วมวง ทดสอบ ที่นั่ง 1");
+    await screen.findByText(HEADLINE);
     await typePin("000000");
     expect(await screen.findByText("PIN ไม่ถูกต้อง")).toBeInTheDocument();
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(submits()).toHaveLength(0);
   });
 
-  it("refuses to sign for a different account", async () => {
+  it("refuses before asking for the PIN when the request is for a different account", async () => {
     renderHarness(() => Promise.resolve(intentFor("0x0000000000000000000000000000000000000bad")), vi.fn());
     fireEvent.click(screen.getByText("go"));
-    await screen.findByText("เข้าร่วมวง ทดสอบ ที่นั่ง 1");
-    await typePin("482913");
-    expect(await screen.findByText(/ไม่ตรงกับบัญชี/, {}, { timeout: 5000 })).toBeInTheDocument();
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(await screen.findByText("หยุดรายการเพื่อความปลอดภัย")).toBeInTheDocument();
+    expect(screen.getByText(/ไม่ใช่ของกุญแจบนเครื่องนี้/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "0" })).not.toBeInTheDocument();
+    expect(submits()).toHaveLength(0);
+  });
+
+  it("refuses a request aimed at another circle", async () => {
+    renderHarness(() => Promise.resolve(intentFor(address, "0x00000000000000000000000000000000000000c2")), vi.fn());
+    fireEvent.click(screen.getByText("go"));
+    expect(await screen.findByText(/ปลายทางไม่ใช่วงที่คุณกำลังทำรายการ/)).toBeInTheDocument();
+    expect(submits()).toHaveLength(0);
+  });
+
+  it("refuses when /api/config disagrees with the build-time pins", async () => {
+    fetchMock.mockImplementation((url: string) =>
+      Promise.resolve(new Response(JSON.stringify(url === "/api/config" ? { ...CONFIG, chainId: 1 } : {}), { status: 200 })),
+    );
+    renderHarness(() => Promise.resolve(intentFor(address)), vi.fn());
+    fireEvent.click(screen.getByText("go"));
+    expect(await screen.findByText(/ข้อมูลเครือข่ายจากเซิร์ฟเวอร์ไม่ตรงกับแอป/)).toBeInTheDocument();
+    expect(submits()).toHaveLength(0);
   });
 });

@@ -5,9 +5,9 @@ import { errorMessage } from "@/api/client";
 import { useConfig } from "@/hooks/session";
 import { useIntent } from "@/hooks/useIntent";
 import { Avatar, Button, Card, Chip, ErrorState, KeyValue, Loading, SectionTitle } from "@/components/ui";
-import { Countdown, QrCode } from "@/components/widgets";
+import { Countdown, QrCode, useNow } from "@/components/widgets";
 import { baht, dateTime, sameAddress } from "@/lib/format";
-import { currentRound, memberByAddress, nameOf, paymentLabel, txUrl, type Round } from "./common";
+import { currentRound, isSettled, memberByAddress, nameOf, paymentLabel, txUrl, type Round } from "./common";
 import type { TabProps } from "./CircleDetail";
 
 const MAX_SLIP = 8 * 1024 * 1024;
@@ -26,6 +26,8 @@ function PayNow({ circle, round }: TabProps & { round: Round }) {
     await run({
       title: "แจ้งโอนเงิน",
       prepare: () => api.preparePayment(circle.id, file),
+      expect: { kind: "declarePayment", circle: circle.address },
+      display: { circleName: circle.name, amount: qr.data?.amount },
       successMessage: "แจ้งโอนแล้ว รอผู้รับยืนยัน",
     });
     if (fileRef.current) fileRef.current.value = "";
@@ -43,6 +45,9 @@ function PayNow({ circle, round }: TabProps & { round: Round }) {
         <p className="mt-1 text-sm text-ink-muted">
           ภายใน {dateTime(round.paymentDeadline)} (<Countdown to={round.paymentDeadline} />)
         </p>
+        {round.defaultAfter && (
+          <p className="text-xs text-ink-muted">ผ่อนผันได้ถึง {dateTime(round.defaultAfter)} หลังจากนั้นถือว่าผิดนัด</p>
+        )}
       </div>
       <div className="flex flex-col items-center rounded-2xl bg-surface p-4">
         <p className="mb-2 text-sm font-medium text-ink">สแกนจ่ายผ่านพร้อมเพย์</p>
@@ -75,18 +80,52 @@ function PayNow({ circle, round }: TabProps & { round: Round }) {
 function RecipientView({ circle, round }: TabProps & { round: Round }) {
   const { run } = useIntent();
   const config = useConfig().data;
-  const confirmed = round.payments.filter((p) => p.status === "CONFIRMED").length;
+  const now = useNow(30_000);
+  const settled = round.payments.filter((p) => isSettled(p.status)).length;
   const total = round.payments.reduce((a, p) => a + (p.amount ? BigInt(p.amount) : 0n), 0n);
+  const canReject = !!round.acceptAfter && now <= round.acceptAfter;
+  const members = circle.members;
+
+  const confirm = (p: Round["payments"][number]) =>
+    void run({
+      title: "ยืนยันว่าได้รับเงิน",
+      prepare: () => api.prepareConfirm(circle.id, p.payer),
+      expect: { kind: "confirmReceipt", circle: circle.address, payer: p.payer },
+      display: { circleName: circle.name, members },
+      successMessage: `ยืนยันการรับเงินจาก ${p.payerName} แล้ว`,
+    });
+  const reject = (p: Round["payments"][number]) =>
+    void run({
+      title: "ยังไม่ได้รับเงิน",
+      prepare: () => api.prepareReject(circle.id, p.payer),
+      expect: { kind: "rejectPayment", circle: circle.address, payer: p.payer },
+      display: { circleName: circle.name, members },
+      successMessage: `แจ้ง ${p.payerName} แล้วว่ายังไม่ได้รับเงิน ผู้โอนจะแจ้งโอนใหม่ได้`,
+    });
+
   return (
     <div className="space-y-4">
       <Card className="bg-primary text-white">
         <p className="text-sm text-white/85">งวดนี้คุณเป็นผู้รับเงินกองกลาง 🎉</p>
         <p className="mt-1 text-3xl font-semibold">฿{baht(total)}</p>
         <p className="mt-1 text-sm text-white/85">
-          ยืนยันแล้ว {confirmed}/{round.payments.length} คน · กำหนดโอน {dateTime(round.paymentDeadline)}
+          ยืนยันแล้ว {settled}/{round.payments.length} คน · กำหนดโอน {dateTime(round.paymentDeadline)}
         </p>
       </Card>
-      <p className="px-1 text-sm text-ink-muted">ตรวจสอบยอดเงินเข้าบัญชีพร้อมเพย์ของคุณ แล้วกด “ได้รับแล้ว” ทีละคน</p>
+      <div className="space-y-1 px-1 text-sm text-ink-muted">
+        <p>ตรวจยอดเงินเข้าบัญชีพร้อมเพย์ของคุณ แล้วตอบทีละคนว่าได้รับเงินหรือยัง</p>
+        {round.acceptAfter && (
+          <p>
+            {canReject ? (
+              <>
+                ตอบได้ถึง {dateTime(round.acceptAfter)} — ถ้าไม่ตอบภายในเวลานี้ ระบบจะถือว่าคุณได้รับเงินจากผู้ที่แจ้งโอนแล้ว
+              </>
+            ) : (
+              <>เลยเวลาตรวจสอบแล้ว ({dateTime(round.acceptAfter)}) การแจ้งโอนที่ค้างอยู่ถือว่าได้รับแล้ว</>
+            )}
+          </p>
+        )}
+      </div>
       <ul className="space-y-2">
         {round.payments.map((p) => {
           const m = memberByAddress(circle, p.payer);
@@ -102,36 +141,39 @@ function RecipientView({ circle, round }: TabProps & { round: Round }) {
                 </div>
                 <Chip tone={st.tone}>{st.text}</Chip>
               </div>
-              <div className="mt-2 flex items-center justify-between gap-2 text-xs">
-                <span className="flex gap-3">
-                  {p.slipId && (
-                    <a href={api.slipUrl(p.slipId)} target="_blank" rel="noreferrer" className="font-medium text-primary underline">
-                      ดูสลิป
-                    </a>
-                  )}
-                  {p.slipVerify === "VERIFIED" && <span className="text-success">สลิปตรวจแล้ว ✓</span>}
-                  {p.slipVerify === "FAILED" && <span className="text-danger">สลิปไม่ผ่านการตรวจ</span>}
-                  {link && (
-                    <a href={link} target="_blank" rel="noreferrer" className="text-ink-muted underline">
-                      หลักฐาน
-                    </a>
-                  )}
-                </span>
-                {p.status !== "CONFIRMED" && (
-                  <Button
-                    size="sm"
-                    onClick={() =>
-                      void run({
-                        title: "ยืนยันว่าได้รับเงิน",
-                        prepare: () => api.prepareConfirm(circle.id, p.payer),
-                        successMessage: `ยืนยันการรับเงินจาก ${p.payerName} แล้ว`,
-                      })
-                    }
-                  >
-                    ได้รับแล้ว
-                  </Button>
+              <div className="mt-2 flex flex-wrap gap-3 text-xs">
+                {p.slipId && (
+                  <a href={api.slipUrl(p.slipId)} target="_blank" rel="noreferrer" className="font-medium text-primary underline">
+                    ดูสลิป
+                  </a>
+                )}
+                {p.slipVerify === "FAILED" && <span className="text-danger">สลิปไม่ผ่านการตรวจ</span>}
+                {link && (
+                  <a href={link} target="_blank" rel="noreferrer" className="text-ink-muted underline">
+                    หลักฐาน
+                  </a>
                 )}
               </div>
+              {p.status === "DECLARED" && (
+                <div className="mt-3 flex gap-2">
+                  <Button size="sm" className="flex-1" onClick={() => confirm(p)}>
+                    ยืนยันได้รับเงิน
+                  </Button>
+                  {canReject && (
+                    <Button size="sm" variant="secondary" className="flex-1" onClick={() => reject(p)}>
+                      ยังไม่ได้รับเงิน
+                    </Button>
+                  )}
+                </div>
+              )}
+              {(p.status === "NONE" || p.status === "DEFAULTED") && (
+                <div className="mt-3 flex items-center justify-between gap-2">
+                  <span className="text-xs text-ink-muted">ได้รับเป็นเงินสดหรือโอนมาโดยไม่แจ้ง?</span>
+                  <Button size="sm" variant="secondary" onClick={() => confirm(p)}>
+                    ยืนยันได้รับเงิน
+                  </Button>
+                </div>
+              )}
             </li>
           );
         })}
@@ -167,8 +209,10 @@ export default function PaymentTab(props: TabProps) {
         <KeyValue label="สถานะ">
           <Chip tone={st.tone}>{st.text}</Chip>
         </KeyValue>
-        {round.defaultAfter && status !== "CONFIRMED" && (
-          <p className="mt-2 text-xs text-ink-muted">หากผู้รับยังไม่ยืนยันหลัง {dateTime(round.defaultAfter)} จะถูกบันทึกว่าผิดนัด</p>
+        {round.defaultAfter && status === "NONE" && (
+          <p className="mt-2 text-xs text-ink-muted">
+            แจ้งโอนพร้อมสลิปได้ถึง {dateTime(round.defaultAfter)} หากยังไม่แจ้งโอนหลังเวลานี้จะถูกบันทึกว่าผิดนัด
+          </p>
         )}
       </Card>
 
@@ -182,10 +226,14 @@ export default function PaymentTab(props: TabProps) {
           <PayNow {...props} round={round} />
         </>
       )}
-      {(status === "DECLARED" || status === "ATTESTED") && (
+      {status === "DECLARED" && (
         <Card className="space-y-2 text-sm text-ink-muted">
-          <p>แจ้งโอนแล้ว รอ {round.recipientName ?? "ผู้รับ"} ยืนยันว่าได้รับเงิน</p>
-          {mine?.slipVerify === "VERIFIED" && <p className="text-success">ระบบตรวจสลิปแล้ว ✓</p>}
+          <p className="font-medium text-ink">แจ้งโอนแล้ว รอผู้รับยืนยัน</p>
+          <p>
+            {round.recipientName ?? "ผู้รับ"} จะตรวจยอดเงินเข้าแล้วกดยืนยัน
+            {round.acceptAfter && <> — ถ้าผู้รับไม่ตอบภายใน {dateTime(round.acceptAfter)} ระบบถือว่าได้รับแล้ว</>}
+          </p>
+          <p>หากผู้รับแจ้งว่ายังไม่ได้รับเงิน คุณจะแจ้งโอนใหม่ได้ก่อนเวลาผิดนัด</p>
           {mine?.slipVerify === "FAILED" && <p className="text-danger">ระบบตรวจสลิปไม่ผ่าน ผู้รับจะตรวจยอดเงินเข้าเอง</p>}
           {mine?.slipId && (
             <a href={api.slipUrl(mine.slipId)} target="_blank" rel="noreferrer" className="font-medium text-primary underline">
@@ -194,13 +242,13 @@ export default function PaymentTab(props: TabProps) {
           )}
         </Card>
       )}
-      {status === "CONFIRMED" && (
+      {isSettled(status) && (
         <Card className="text-center">
           <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-success-soft text-2xl text-success" aria-hidden>
             ✓
           </div>
           <p className="mt-2 font-semibold text-ink">ชำระงวดนี้แล้ว</p>
-          <p className="text-sm text-ink-muted">บันทึกถาวรแล้ว ✓</p>
+          <p className="text-sm text-ink-muted">{status === "ATTESTED" ? "ตรวจสลิปกับธนาคารแล้ว ✓" : "บันทึกถาวรแล้ว ✓"}</p>
           {link && (
             <a href={link} target="_blank" rel="noreferrer" className="mt-2 inline-block text-sm text-primary underline">
               ดูหลักฐาน

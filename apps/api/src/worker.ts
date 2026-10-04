@@ -4,12 +4,14 @@ import { createLogger } from "./logger.js";
 import { indexRange } from "./services/ingest.js";
 import { cleanup, reconcileIntents, runKeeper, runReminders, runSlipVerification } from "./services/keeper.js";
 import { pushPending } from "./services/notify.js";
+import { executeDueRotations } from "./services/rotation.js";
+import { checkGas } from "./gas.js";
 
 /**
  * Background worker: indexer, keeper, slip verification, reminders and LINE push.
  * Several replicas may run; a Redis lease makes exactly one of them active at a time.
  */
-const config = loadConfig();
+const config = loadConfig("worker");
 const log = createLogger("worker");
 const ctx = createCtx(config, log);
 const LEASE_KEY = "lease:worker";
@@ -27,23 +29,8 @@ async function holdLease(ctx: Ctx): Promise<boolean> {
   return false;
 }
 
-/** Relayer and keeper pay gas; flag (health) and log loudly before they run dry. */
-async function checkGas(c: Ctx) {
-  const low: string[] = [];
-  for (const [name, account] of [["relayer", c.chain.relayer], ["keeper", c.chain.keeper], ["attester", c.chain.attester]] as const) {
-    const balance = await c.chain.publicClient.getBalance({ address: account.address });
-    if (balance < c.config.MIN_GAS_BALANCE_WEI) low.push(`${name}:${account.address}:${balance}`);
-  }
-  if (low.length) {
-    log.error({ low }, "gas balance low — top up these accounts");
-    await c.redis.set("ops:gas-low", low.join(","), "PX", 10 * 60_000);
-  } else {
-    await c.redis.del("ops:gas-low");
-  }
-}
-
 const jobs: [string, (ctx: Ctx) => Promise<unknown>][] = [
-  ["gas", checkGas],
+  ["gas", (c) => checkGas(c, "keeper", c.chain.keeper)],
   ["index", async (c) => {
     // catch up in chunks within one tick
     for (let i = 0; i < 10; i++) if (!(await indexRange(c))) break;
@@ -54,6 +41,7 @@ const jobs: [string, (ctx: Ctx) => Promise<unknown>][] = [
   ["reminders", runReminders],
   ["push", pushPending],
   ["cleanup", cleanup],
+  ["rotations", executeDueRotations],
 ];
 
 async function tick() {

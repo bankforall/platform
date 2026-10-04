@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.37;
 
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
@@ -49,6 +49,7 @@ contract CircleFactory is AccessControl, Pausable, EIP712, ERC2771Context {
         EIP712("BankForAll", "1")
         ERC2771Context(forwarder)
     {
+        if (admin == address(0) || attester == address(0) || forwarder == address(0)) revert InvalidParams();
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
         _grantRole(ATTESTER_ROLE, attester);
         implementation = address(new Circle(forwarder));
@@ -73,8 +74,8 @@ contract CircleFactory is AccessControl, Pausable, EIP712, ERC2771Context {
         circle = Clones.clone(implementation);
         isCircle[circle] = true;
         activeCircles[host] += 1;
-        Circle(circle).initialize(p, host, hostSeat, att.reputation);
         emit CircleCreated(circle, host, p);
+        Circle(circle).initialize(p, host, hostSeat, att.reputation);
     }
 
     /// @notice Reverts unless `sig` is a current attestation signed by an ATTESTER.
@@ -158,8 +159,11 @@ contract CircleFactory is AccessControl, Pausable, EIP712, ERC2771Context {
 
     function _validate(CircleParams calldata p, uint8 hostSeat) private view {
         if (p.maxMembers < 2 || p.principal == 0 || p.period == 0) revert InvalidParams();
-        if (p.bidWindow == 0 || p.revealWindow == 0 || p.paymentWindow == 0) revert InvalidParams();
-        if (uint256(p.bidWindow) + p.revealWindow + p.paymentWindow + p.grace > p.period) {
+        if (p.bidWindow == 0 || p.revealWindow == 0 || p.paymentWindow == 0 || p.grace == 0) {
+            revert InvalidParams();
+        }
+        // payment window, then grace to pay (default after), then grace for the recipient to reject
+        if (uint256(p.bidWindow) + p.revealWindow + p.paymentWindow + 2 * uint256(p.grace) > p.period) {
             revert InvalidParams();
         }
         if (p.circleType == CircleType.Fix) {

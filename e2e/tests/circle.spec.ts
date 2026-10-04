@@ -113,18 +113,26 @@ test.describe.serial("peer-share circle end to end", () => {
       await mine();
       await page.locator("#slip-input").setInputFiles(png("slip.png"));
       await signIntent(page);
-      await eventually(page, () => page.getByText(/แจ้งโอนแล้ว รอ/));
+      // declared (waiting for the recipient) or already bank-verified
+      await eventually(page, () => page.getByText("แจ้งโอนแล้ว รอผู้รับยืนยัน").or(page.getByText("ตรวจสลิปกับธนาคารแล้ว ✓")));
     }
 
     const { page } = host;
     await open(page, `${circleUrl}?tab=payment`);
     await eventually(page, () => page.getByText("งวดนี้คุณเป็นผู้รับเงินกองกลาง 🎉"));
     for (const a of [alice, bob]) {
-      const row = page.locator("li").filter({ hasText: a.name });
-      await eventually(page, () => page.locator("li").filter({ hasText: a.name }).getByText("แจ้งโอนแล้ว").or(
-        page.locator("li").filter({ hasText: a.name }).getByText("สลิปถูกต้อง"),
-      ));
-      await act(page, row.getByRole("button", { name: "ได้รับแล้ว" }));
+      const row = () => page.locator("li").filter({ hasText: a.name });
+      await eventually(page, () => row().getByText("แจ้งโอนแล้ว").or(row().getByText("ตรวจสลิปกับธนาคารแล้ว ✓")));
+      // a bank-verified slip is already settled; a declared one needs the recipient's answer
+      const confirm = row().getByRole("button", { name: "ยืนยันได้รับเงิน" });
+      if (await confirm.isVisible()) {
+        await expect(row().getByRole("button", { name: "ยังไม่ได้รับเงิน" })).toBeVisible();
+        await mine();
+        await confirm.click();
+        // the sheet is rendered from the decoded call, not from server text
+        await expect(page.getByRole("dialog").getByText(`ยืนยันว่าได้รับเงินจาก ${a.name}`)).toBeVisible();
+        await signIntent(page);
+      }
     }
     await eventually(page, () => page.getByText("ยืนยันแล้ว 2/2 คน"));
   });
@@ -165,6 +173,26 @@ test.describe.serial("peer-share circle end to end", () => {
     await expect(bob.page.getByText(alice.name).first()).toBeVisible();
     await open(alice.page, `${circleUrl}?tab=payment`);
     await eventually(alice.page, () => alice.page.getByText("งวดนี้คุณเป็นผู้รับเงินกองกลาง 🎉"));
+  });
+
+  test("round 2: the recipient says a declared payment never arrived", async () => {
+    await mine();
+    await bob.page.locator("#slip-input").setInputFiles(png("slip.png"));
+    await signIntent(bob.page);
+    await eventually(bob.page, () => bob.page.getByText("แจ้งโอนแล้ว รอผู้รับยืนยัน").or(bob.page.getByText("ตรวจสลิปกับธนาคารแล้ว ✓")));
+    if (await bob.page.getByText("ตรวจสลิปกับธนาคารแล้ว ✓").isVisible()) return; // bank-verified slips cannot be rejected
+
+    const { page } = alice;
+    const row = () => page.locator("li").filter({ hasText: bob.name });
+    await eventually(page, () => row().getByRole("button", { name: "ยังไม่ได้รับเงิน" }));
+    await mine();
+    await row().getByRole("button", { name: "ยังไม่ได้รับเงิน" }).click();
+    await expect(page.getByRole("dialog").getByText(`แจ้งว่ายังไม่ได้รับเงินจาก ${bob.name}`, { exact: true })).toBeVisible();
+    await signIntent(page);
+
+    // bob's payment is open again and he can declare before the default time
+    await open(bob.page, `${circleUrl}?tab=payment`);
+    await eventually(bob.page, () => bob.page.getByText("โอนแล้ว — อัปโหลดสลิป"));
   });
 
   test("evidence report opens", async () => {

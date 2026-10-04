@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { loadConfig } from "../src/config.js";
 import { Encryptor, inviteCode, randomDigits } from "../src/crypto.js";
-import { validNationalId } from "../src/services/kyc.js";
+import { sniffImage, validNationalId } from "../src/services/kyc.js";
 import { maskPromptPay } from "../src/services/users.js";
 
 const key = (n: number) => "0x" + n.toString(16).padStart(64, "0");
@@ -25,18 +25,53 @@ const base = {
 };
 
 describe("config", () => {
-  it("accepts a development config", () => {
-    expect(loadConfig({ ...base, NODE_ENV: "development", DEV_LOGIN: "true" }).DEV_LOGIN).toBe(true);
+  const prod = {
+    ...base,
+    NODE_ENV: "production",
+    LINE_CHANNEL_ID: "1",
+    LINE_CHANNEL_SECRET: "2",
+    SMS_PROVIDER: "twilio",
+    SIGNER_URL: "http://signer:4100",
+    SIGNER_TOKEN: "t".repeat(32),
+  };
+  const only = (keys: Record<string, string>) => ({
+    ...prod,
+    RELAYER_PRIVATE_KEY: "",
+    KEEPER_PRIVATE_KEY: "",
+    ATTESTER_PRIVATE_KEY: "",
+    ...keys,
+  });
+
+  it("accepts a development config with in-process signing", () => {
+    expect(loadConfig("api", { ...base, NODE_ENV: "development", DEV_LOGIN: "true" }).DEV_LOGIN).toBe(true);
+  });
+
+  it("gives each production process only its own key", () => {
+    expect(loadConfig("api", only({ RELAYER_PRIVATE_KEY: key(1) })).ROLE).toBe("api");
+    expect(loadConfig("worker", only({ KEEPER_PRIVATE_KEY: key(2) })).ROLE).toBe("worker");
+    expect(loadConfig("signer", only({ ATTESTER_PRIVATE_KEY: key(3) })).ROLE).toBe("signer");
+    expect(() => loadConfig("api", only({ RELAYER_PRIVATE_KEY: key(1), ATTESTER_PRIVATE_KEY: key(3) }))).toThrow(
+      /ATTESTER_PRIVATE_KEY: must not be given/,
+    );
+    expect(() => loadConfig("worker", only({ KEEPER_PRIVATE_KEY: key(2), RELAYER_PRIVATE_KEY: key(1) }))).toThrow(
+      /least privilege/,
+    );
+    expect(() => loadConfig("api", only({}))).toThrow(/RELAYER_PRIVATE_KEY: required/);
   });
 
   it("refuses unsafe production settings", () => {
-    const prod = { ...base, NODE_ENV: "production" };
-    expect(() => loadConfig({ ...prod, DEV_LOGIN: "true" })).toThrow(/DEV_LOGIN/);
-    expect(() => loadConfig(prod)).toThrow(/LINE_CHANNEL_ID|SMS_PROVIDER/);
-    const ok = { ...prod, LINE_CHANNEL_ID: "1", LINE_CHANNEL_SECRET: "2", SMS_PROVIDER: "twilio" };
-    expect(loadConfig(ok).NODE_ENV).toBe("production");
-    expect(() => loadConfig({ ...ok, KEEPER_PRIVATE_KEY: key(1) })).toThrow(/must differ/);
-    expect(() => loadConfig({ ...ok, PUBLIC_URL: "http://app.example.com" })).toThrow(/https/);
+    const api = only({ RELAYER_PRIVATE_KEY: key(1) });
+    expect(() => loadConfig("api", { ...api, DEV_LOGIN: "true" })).toThrow(/DEV_LOGIN/);
+    expect(() => loadConfig("api", { ...api, SIGNER_URL: "" })).toThrow(/separate signer/);
+    expect(() => loadConfig("api", { ...api, SMS_PROVIDER: "console" })).toThrow(/SMS_PROVIDER/);
+    expect(() => loadConfig("api", { ...api, PUBLIC_URL: "http://app.example.com" })).toThrow(/https/);
+    expect(() => loadConfig("signer", only({ ATTESTER_PRIVATE_KEY: key(3), SIGNER_TOKEN: "short" }))).toThrow(
+      /SIGNER_TOKEN/,
+    );
+  });
+
+  it("refuses reused keys", () => {
+    expect(() => loadConfig("api", { ...base, KEEPER_PRIVATE_KEY: key(1) })).toThrow(/must differ/);
   });
 });
 
@@ -61,6 +96,14 @@ describe("helpers", () => {
     expect(validNationalId("1101700230708")).toBe(true);
     expect(validNationalId("1101700230709")).toBe(false);
     expect(validNationalId("123")).toBe(false);
+  });
+
+  it("detects image types from content, not the declared MIME type", () => {
+    const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(8)]);
+    const jpeg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(8)]);
+    expect(sniffImage(png)).toBe("image/png");
+    expect(sniffImage(jpeg)).toBe("image/jpeg");
+    expect(sniffImage(Buffer.from("<svg onload=alert(1)>....."))).toBeNull();
   });
 
   it("masks PromptPay IDs", () => {

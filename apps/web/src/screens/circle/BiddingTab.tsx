@@ -55,6 +55,8 @@ export default function BiddingTab({ circle, myAddress }: TabProps) {
     const res = await run({
       title: "ยื่นซองประมูล",
       prepare: () => api.prepareBid(circle.id, hash),
+      expect: { kind: "commitBid", circle: circle.address, bidHash: hash },
+      display: { circleName: circle.name, bidAmount: amount.toString() },
       bid: { amount: amount.toString(), salt },
       successMessage: "ยื่นซองแล้ว ระบบจะเปิดซองให้อัตโนมัติเมื่อถึงเวลา",
     });

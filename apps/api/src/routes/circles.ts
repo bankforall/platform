@@ -19,6 +19,7 @@ import {
   prepareHostAction,
   prepareJoin,
   preparePayment,
+  prepareReject,
 } from "../services/circles.js";
 import { evidenceHtml } from "../services/evidence.js";
 import { intentView, submitIntent } from "../services/intents.js";
@@ -75,6 +76,11 @@ export function circleRoutes(app: FastifyInstance, ctx: Ctx) {
   app.post("/api/circles/:id/payments/:payer/confirm", async (req) => {
     const { id, payer } = parse(idParams.extend({ payer: address }), req.params);
     return prepareConfirm(ctx, await requireUser(ctx, req), id, payer);
+  });
+
+  app.post("/api/circles/:id/payments/:payer/reject", async (req) => {
+    const { id, payer } = parse(idParams.extend({ payer: address }), req.params);
+    return prepareReject(ctx, await requireUser(ctx, req), id, payer);
   });
 
   app.post("/api/circles/:id/disputes", async (req) => {

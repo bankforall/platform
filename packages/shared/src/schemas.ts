@@ -33,15 +33,16 @@ export const createCircleSchema = z
     bidWindow: z.number().int().min(HOUR),
     revealWindow: z.number().int().min(HOUR),
     paymentWindow: z.number().int().min(HOUR),
-    grace: z.number().int().min(0).max(14 * DAY),
+    /** Time to pay after the payment window; the recipient then has the same time to reject. */
+    grace: z.number().int().min(HOUR).max(14 * DAY),
     private: z.boolean().default(true),
   })
   .refine((c) => c.principal * BigInt(c.maxMembers) <= LEGAL_CAPS.maxPoolValue, {
     error: "มูลค่าทุนของวงเกินเพดานตามกฎหมาย",
     path: ["principal"],
   })
-  .refine((c) => c.bidWindow + c.revealWindow + c.paymentWindow + c.grace <= c.period, {
-    error: "ช่วงประมูล + เปิดซอง + ชำระ + ผ่อนผัน ต้องไม่เกินระยะเวลาต่องวด",
+  .refine((c) => c.bidWindow + c.revealWindow + c.paymentWindow + 2 * c.grace <= c.period, {
+    error: "ช่วงประมูล + เปิดซอง + ชำระ + ผ่อนผัน×2 ต้องไม่เกินระยะเวลาต่องวด",
     path: ["period"],
   });
 

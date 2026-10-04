@@ -38,6 +38,17 @@ export const meResponse = z.object({
   reputation: z.number().int(),
   /** Steps still required before the user can create or join a circle, in order. */
   onboarding: z.array(z.enum(["phone", "promptpay", "consent", "wallet", "kyc"])),
+  /** Key recovery in progress (see POST /api/me/key-rotation). */
+  pendingKeyRotation: z
+    .object({
+      id: z.string(),
+      newAddress: address,
+      approvals: z.number().int(),
+      /** Set once two admins approved; the switch happens after this time (unix seconds). */
+      executeAfter: z.number().int().nullable(),
+      createdAt: z.string(),
+    })
+    .nullable(),
 });
 export type MeResponse = z.infer<typeof meResponse>;
 
@@ -45,11 +56,22 @@ export const CONSENT_VERSION = "2026-10-01";
 
 export const sendOtpBody = z.object({ phone: z.string().regex(/^0\d{9}$/, "เบอร์มือถือ 10 หลัก ขึ้นต้นด้วย 0") });
 export const verifyOtpBody = z.object({ code: z.string().regex(/^\d{6}$/) });
-export const promptPayBody = z.object({ promptPayId: z.string().min(10).max(20) });
+/**
+ * Changing an existing PromptPay ID needs a fresh OTP (`POST /api/me/step-up/otp`), and is refused
+ * while the user is the recipient of an unsettled round.
+ */
+export const promptPayBody = z.object({
+  promptPayId: z.string().min(10).max(20),
+  code: z.string().regex(/^\d{6}$/).optional(),
+});
 export const consentBody = z.object({ version: z.literal(CONSENT_VERSION) });
-/** Registers the device-generated key; `backup` is encrypted client-side with the recovery code. */
+/**
+ * Registers the device-generated key; `backup` is encrypted client-side with the recovery code.
+ * `proof` = personal_sign of `walletProofMessage(userId, address)` with that key.
+ */
 export const walletBody = z.object({
   address,
+  proof: hex,
   backup: z.object({ v: z.literal(1), salt: z.string(), iv: z.string(), ciphertext: z.string() }),
 });
 export type WalletBackup = z.infer<typeof walletBody>["backup"];
@@ -58,6 +80,19 @@ export const kycFields = z.object({
   fullName: z.string().trim().min(3).max(100),
   nationalId: z.string().regex(/^\d{13}$/, "เลขประจำตัวประชาชน 13 หลัก"),
 });
+
+/** Lost device and recovery code: request a switch to a new key (needs two admins, then 24 hours). */
+export const keyRotationRequestBody = z.object({
+  newAddress: address,
+  /** personal_sign of `keyRotationMessage(userId, newAddress)` with the new key */
+  proof: hex,
+});
+
+/** Messages signed with EIP-191 personal_sign to prove possession of a key. */
+export const walletProofMessage = (userId: string, address: string) =>
+  `Bank For All\nยืนยันว่าเป็นเจ้าของกุญแจนี้\nบัญชี: ${userId}\nกุญแจ: ${address.toLowerCase()}`;
+export const keyRotationMessage = (userId: string, newAddress: string) =>
+  `Bank For All\nขอเปลี่ยนกุญแจของบัญชีเป็นกุญแจนี้\nบัญชี: ${userId}\nกุญแจใหม่: ${newAddress.toLowerCase()}`;
 
 // ─────────────── intents (relayed transactions) ───────────────
 
@@ -69,6 +104,7 @@ export const IntentKind = z.enum([
   "commitBid",
   "declarePayment",
   "confirmReceipt",
+  "rejectPayment",
   "dispute",
 ]);
 export type IntentKind = z.infer<typeof IntentKind>;
@@ -98,7 +134,9 @@ export type PreparedIntent = z.infer<typeof preparedIntent>;
 export const submitIntentBody = z.object({
   signature: hex,
   /** commitBid only: kept server-side (encrypted) so the keeper can reveal the bid on time. */
-  bid: z.object({ amount, salt: bytes32 }).optional(),
+  bid: z
+    .object({ amount: amount.refine((v) => BigInt(v) < 2n ** 128n, "amount too large"), salt: bytes32 })
+    .optional(),
 });
 
 export const intentResponse = z.object({
@@ -119,10 +157,10 @@ export const PaymentStatus = z.enum(["NONE", "DECLARED", "ATTESTED", "CONFIRMED"
 export type PaymentStatus = z.infer<typeof PaymentStatus>;
 
 export const createCircleBody = createCircleSchema.and(
-  z.object({ description: z.string().max(500).optional(), hostSeat: z.number().int().min(0).default(0) }),
+  z.object({ description: z.string().max(500).optional(), hostSeat: z.number().int().min(0).max(29).default(0) }),
 );
 export const joinCircleBody = z.object({
-  seat: z.number().int().min(0).default(0),
+  seat: z.number().int().min(0).max(29).default(0),
   inviteCode: z.string().optional(),
 });
 export const commitBidBody = z.object({ hash: bytes32 });
@@ -193,8 +231,10 @@ export const roundView = z.object({
   recipientName: z.string().nullable(),
   winningBid: amount,
   paymentDeadline: z.number().int().nullable(),
-  /** paymentDeadline + grace: after this, unpaid members can be marked in default. */
+  /** paymentDeadline + grace: after this, members who have not declared can be marked in default. */
   defaultAfter: z.number().int().nullable(),
+  /** paymentDeadline + 2 × grace: until this the recipient may reject a declared payment; after it, it is accepted. */
+  acceptAfter: z.number().int().nullable(),
   payments: z.array(paymentView),
   /** Members who committed a sealed bid (amounts stay hidden until revealed). */
   committed: z.array(address),
@@ -249,7 +289,18 @@ export const kycDecisionBody = z.object({
   reason: z.string().max(500).optional(),
   reputation: z.number().int().min(0).max(1000).optional(),
 });
-export const rotateKeyBody = z.object({ newAddress: address });
+export const keyRotationView = z.object({
+  id: z.string(),
+  userId: z.string(),
+  displayName: z.string(),
+  oldAddress: address,
+  newAddress: address,
+  status: z.enum(["PENDING", "APPROVED", "EXECUTED", "CANCELLED", "FAILED"]),
+  approvals: z.array(z.object({ adminId: z.string(), adminName: z.string(), at: z.string() })),
+  executeAfter: z.string().nullable(),
+  createdAt: z.string(),
+});
+export type KeyRotationView = z.infer<typeof keyRotationView>;
 
 /** Converts the string fields of a prepared ForwardRequest to the bigint types viem expects. */
 export function toTypedDataMessage(m: PreparedIntent["typedData"]["message"]) {

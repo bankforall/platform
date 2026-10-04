@@ -68,7 +68,7 @@ export default function Onboarding() {
         {step === "phone" && <PhoneStep onDone={done} />}
         {step === "promptpay" && <PromptPayStep me={me.data} onDone={done} />}
         {step === "consent" && <ConsentStep onDone={done} />}
-        {step === "wallet" && <WalletStep onDone={done} />}
+        {step === "wallet" && <WalletStep me={me.data} onDone={done} />}
         {step === "kyc" && <KycStep me={me.data} onDone={done} />}
       </main>
     </Screen>

@@ -20,10 +20,11 @@ const H = 3600;
 const D = 86400;
 
 const PERIODS = [
-  { id: "daily", label: "รายวัน", period: D, bid: 4 * H, reveal: 2 * H, pay: 8 * H, grace: 4 * H },
+  // grace counts twice: payers get it after the payment window, then the recipient gets it to review.
+  { id: "daily", label: "รายวัน", period: D, bid: 4 * H, reveal: 2 * H, pay: 6 * H, grace: 4 * H },
   { id: "weekly", label: "รายสัปดาห์", period: 7 * D, bid: D, reveal: 12 * H, pay: 2 * D, grace: D },
   { id: "biweekly", label: "ทุก 2 สัปดาห์", period: 14 * D, bid: 2 * D, reveal: D, pay: 3 * D, grace: D },
-  { id: "monthly", label: "รายเดือน", period: 30 * D, bid: 2 * D, reveal: D, pay: 5 * D, grace: 2 * D },
+  { id: "monthly", label: "รายเดือน", period: 30 * D, bid: 2 * D, reveal: D, pay: 5 * D, grace: D },
 ] as const;
 type PeriodId = (typeof PERIODS)[number]["id"];
 interface Windows {
@@ -39,6 +40,43 @@ const TYPES = [
   { type: CircleType.Float, title: "ประมูลดอกตาม (Float)", body: "ผู้เสนอดอกสูงสุดได้รับ แล้วจ่ายเงินต้น + ดอกทุกงวดที่เหลือ" },
   { type: CircleType.Discount, title: "ประมูลดอกหัก (Discount)", body: "ผู้เสนอส่วนลดสูงสุดได้รับ คนที่ยังไม่ได้รับจ่ายน้อยลง" },
 ];
+
+/** One round: bid → reveal → pay → grace (then default) → recipient review (grace again) → idle until the next round. */
+function RoundTimeline({ windows }: { windows: Windows }) {
+  const steps = [
+    { label: "ประมูล (ยื่นซอง)", secs: windows.bid, tone: "bg-primary/60" },
+    { label: "เปิดซอง", secs: windows.reveal, tone: "bg-primary/40" },
+    { label: "ชำระ", secs: windows.pay, tone: "bg-success/60" },
+    { label: "ผ่อนผัน (หลังจากนี้ผิดนัด)", secs: windows.grace, tone: "bg-warn/70" },
+    { label: "ผู้รับตรวจสอบ", secs: windows.grace, tone: "bg-amber-300" },
+  ];
+  const used = steps.reduce((a, s) => a + Math.max(s.secs, 0), 0);
+  const total = Math.max(windows.period, used, 1);
+  return (
+    <div className="mt-3 rounded-2xl bg-white p-3 shadow-xs" aria-label="ลำดับเวลาในแต่ละงวด">
+      <div className="flex h-2 overflow-hidden rounded-full bg-surface" aria-hidden>
+        {steps.map((s) => (
+          <span key={s.label} className={s.tone} style={{ width: `${(Math.max(s.secs, 0) / total) * 100}%` }} />
+        ))}
+      </div>
+      <ol className="mt-2 space-y-1 text-xs text-ink">
+        {steps.map((s, i) => (
+          <li key={s.label} className="flex items-center justify-between gap-2">
+            <span className="flex items-center gap-2">
+              <span className={cx("inline-block h-2 w-2 rounded-full", s.tone)} aria-hidden />
+              {i + 1}. {s.label}
+            </span>
+            <span className="tabular-nums text-ink-muted">{duration(s.secs)}</span>
+          </li>
+        ))}
+      </ol>
+      <p className="mt-2 text-xs text-ink-muted">
+        ผู้ที่ยังไม่แจ้งโอนเมื่อหมดช่วงผ่อนผันจะถูกบันทึกว่าผิดนัด จากนั้นผู้รับมีเวลาเท่ากันในการตรวจว่าได้รับเงินจริง
+        ถ้าไม่ตอบ ระบบถือว่าได้รับแล้ว · รวม {duration(used)} จาก {duration(windows.period)} ต่องวด
+      </p>
+    </div>
+  );
+}
 
 export default function CreateCircle() {
   const me = useMe().data!;
@@ -117,6 +155,7 @@ export default function CreateCircle() {
     const res = await run({
       title: "สร้างวงแชร์",
       prepare: () => api.prepareCreate(body),
+      expect: { kind: "createCircle", create: body },
       successMessage: `สร้างวง ${body.name} แล้ว ส่งรหัสเชิญให้สมาชิกได้เลย`,
     });
     if (res?.status === "CONFIRMED" && res.circleId) navigate(`/circles/${res.circleId}`, { replace: true });
@@ -257,17 +296,20 @@ export default function CreateCircle() {
                   key={k}
                   label={label}
                   type="number"
-                  min={k === "grace" ? 0 : 1}
+                  min={1}
                   value={windows[k] / H}
                   onChange={(e) => setWindows((w) => ({ ...w, [k]: Math.round(Number(e.target.value) * H) }))}
                 />
               ))}
-              {errors.period && <p className="col-span-2 text-sm text-danger">{errors.period}</p>}
+              {errors.grace && <p className="col-span-2 text-sm text-danger">ผ่อนผัน: {errors.grace}</p>}
             </Card>
           )}
-          <p className="mt-2 text-xs text-ink-muted">
-            แต่ละงวด: ยื่นซอง {duration(windows.bid)} → เปิดซอง {duration(windows.reveal)} → ชำระ {duration(windows.pay)} → ผ่อนผัน {duration(windows.grace)}
-          </p>
+          <RoundTimeline windows={windows} />
+          {errors.period && (
+            <p className="mt-1 text-sm text-danger" role="alert">
+              {errors.period}
+            </p>
+          )}
         </fieldset>
 
         {isFix && principal !== null && maxMembers >= 2 && maxMembers <= LEGAL_CAPS.maxMembers && (

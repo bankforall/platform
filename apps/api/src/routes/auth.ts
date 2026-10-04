@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { endSession, startSession } from "../auth/session.js";
+import { currentUser, endSession, startSession } from "../auth/session.js";
 import type { Ctx } from "../context.js";
 import { safeEqual } from "../crypto.js";
 import { notFound, parse } from "../errors.js";
@@ -72,7 +72,10 @@ export function authRoutes(app: FastifyInstance, ctx: Ctx) {
     return { ok: true };
   });
 
-  app.post("/api/auth/logout", async (_req, reply) => {
+  app.post("/api/auth/logout", async (req, reply) => {
+    // revoke every session of this user, so a copied cookie stops working too
+    const user = await currentUser(ctx, req);
+    if (user) await ctx.db.user.update({ where: { id: user.id }, data: { sessionVersion: { increment: 1 } } });
     endSession(reply);
     return { ok: true };
   });

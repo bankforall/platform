@@ -29,6 +29,16 @@ export function endSession(reply: FastifyReply) {
   reply.clearCookie(SESSION_COOKIE, { path: "/" });
 }
 
+/** User id of a valid session token (signature + expiry only, no database lookup). */
+export async function verifiedSubject(ctx: Ctx, token: string): Promise<string | null> {
+  try {
+    const { payload } = await jwtVerify(token, key(ctx), { algorithms: ["HS256"] });
+    return payload.sub ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function currentUser(ctx: Ctx, req: FastifyRequest): Promise<User | null> {
   const token = req.cookies[SESSION_COOKIE];
   if (!token) return null;

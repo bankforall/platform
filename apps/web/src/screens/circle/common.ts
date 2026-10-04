@@ -19,10 +19,15 @@ export function nameOf(c: CircleDetail, address: string | null | undefined): str
 export const paymentLabel: Record<PaymentStatus, { text: string; tone: "neutral" | "primary" | "success" | "warn" | "danger" }> = {
   NONE: { text: "ยังไม่จ่าย", tone: "warn" },
   DECLARED: { text: "แจ้งโอนแล้ว", tone: "primary" },
-  ATTESTED: { text: "สลิปถูกต้อง", tone: "primary" },
+  ATTESTED: { text: "ตรวจสลิปกับธนาคารแล้ว ✓", tone: "success" },
   CONFIRMED: { text: "ผู้รับยืนยันแล้ว", tone: "success" },
   DEFAULTED: { text: "ผิดนัด", tone: "danger" },
 };
+
+/** Settled for the round: confirmed by the recipient (or accepted after the review time) or bank-verified. */
+export function isSettled(status: PaymentStatus): boolean {
+  return status === "CONFIRMED" || status === "ATTESTED";
+}
 
 export function txUrl(explorer: string | null | undefined, hash: string | null | undefined): string | null {
   return explorer && hash ? `${explorer.replace(/\/$/, "")}/tx/${hash}` : null;

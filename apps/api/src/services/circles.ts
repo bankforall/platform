@@ -13,7 +13,6 @@ import {
 } from "@bankforall/shared";
 import { encodeFunctionData, getAddress, keccak256, toBytes, zeroAddress, type Address, type Hex } from "viem";
 import type { z } from "zod";
-import { signAttestation } from "../chain/signing.js";
 import type { Ctx } from "../context.js";
 import { inviteCode as newInviteCode, sha256Hex } from "../crypto.js";
 import { badRequest, conflict, forbidden, notFound } from "../errors.js";
@@ -171,6 +170,7 @@ function roundView(
     winningBid: r.winningBid.toString(),
     paymentDeadline: unix(r.paymentDeadline),
     defaultAfter: r.paymentDeadline ? unix(r.paymentDeadline)! + circle.grace : null,
+    acceptAfter: r.paymentDeadline ? unix(r.paymentDeadline)! + 2 * circle.grace : null,
     payments: payments
       .filter((p) => p.round === r.number)
       .map((p) => ({
@@ -262,12 +262,7 @@ export async function prepareCreate(
       inviteCode: newInviteCode(),
     },
   });
-  const { attestation, signature } = await signAttestation(
-    ctx.chain,
-    getAddress(user.walletAddress!),
-    zeroAddress,
-    user.reputation,
-  );
+  const { attestation, signature } = await ctx.signer.attestation(getAddress(user.walletAddress!), zeroAddress);
   const params = {
     circleType: body.type,
     hostTakesFirst: body.hostTakesFirst,
@@ -307,7 +302,7 @@ export async function prepareJoin(ctx: Ctx, user: User, circleId: string, seat: 
   if (myMembership(circle, user)) throw conflict("คุณเป็นสมาชิกวงนี้อยู่แล้ว", "ALREADY_MEMBER");
   if (user.reputation < circle.minReputation) throw forbidden("คะแนนความน่าเชื่อถือยังไม่ถึงเกณฑ์ของวงนี้");
   const address = onChain(circle);
-  const { attestation, signature } = await signAttestation(ctx.chain, getAddress(user.walletAddress!), address, user.reputation);
+  const { attestation, signature } = await ctx.signer.attestation(getAddress(user.walletAddress!), address);
   const seatText = circle.type === CircleType.Fix ? ` ที่นั่งที่ ${seat + 1}` : "";
   return prepareIntent(ctx, user, {
     kind: "join",
@@ -397,9 +392,27 @@ export async function prepareConfirm(ctx: Ctx, user: User, circleId: string, pay
   });
 }
 
+/** The recipient states a declared transfer never arrived (before `acceptAfter`). */
+export async function prepareReject(ctx: Ctx, user: User, circleId: string, payer: string) {
+  const circle = await loadCircle(ctx, circleId);
+  const payerName =
+    (await ctx.db.user.findUnique({ where: { walletAddress: payer.toLowerCase() } }))?.displayName ?? payer.slice(0, 8);
+  return prepareIntent(ctx, user, {
+    kind: "rejectPayment",
+    circleId,
+    to: onChain(circle),
+    data: encodeFunctionData({ abi: circleAbi, functionName: "rejectPayment", args: [getAddress(payer)] }),
+    summary: `แจ้งว่ายังไม่ได้รับเงินจาก ${payerName}`,
+  });
+}
+
 export async function prepareDispute(ctx: Ctx, user: User, circleId: string, round: number, reason: string) {
   const circle = await loadCircle(ctx, circleId);
   if (!myMembership(circle, user)) throw forbidden("คุณไม่ได้เป็นสมาชิกของวงนี้");
+  if (round < 1 || round > Math.max(circle.currentRound, 1)) throw badRequest("รอบไม่ถูกต้อง");
+  // one recorded dispute per member per round (each one costs gas and notifies the host)
+  const existing = await ctx.db.dispute.findFirst({ where: { circleId, round, userId: user.id, txHash: { not: null } } });
+  if (existing) throw conflict("คุณแจ้งปัญหาของรอบนี้แล้ว ติดตามผลกับนายวงหรือเจ้าหน้าที่", "DISPUTE_EXISTS");
   const reasonHash = keccak256(toBytes(reason));
   await ctx.db.dispute.create({ data: { circleId, round, userId: user.id, reason, reasonHash } });
   return prepareIntent(ctx, user, {

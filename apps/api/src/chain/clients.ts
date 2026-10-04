@@ -18,10 +18,19 @@ export interface Chain {
   chainId: number;
   factory: Address;
   forwarder: Address;
-  relayer: Account;
-  keeper: Account;
-  attester: Account;
+  /** Only the accounts this process is configured with (see config.ts roles). */
+  relayer?: Account;
+  keeper?: Account;
+  attester?: Account;
   sender: TxSender;
+}
+
+const account = (key?: string) => (key ? privateKeyToAccount(key as Hex) : undefined);
+
+/** Narrows an optional account; a missing one is a deployment/config bug. */
+export function need<T>(value: T | undefined, what: string): T {
+  if (!value) throw new Error(`${what} is not configured for this process`);
+  return value;
 }
 
 /** Current chain time (latest block timestamp). Deadlines checked on-chain must use this, not Date.now(). */
@@ -44,9 +53,9 @@ export function createChain(config: Config, redis: Redis): Chain {
     chainId: config.CHAIN_ID,
     factory: config.FACTORY_ADDRESS as Address,
     forwarder: config.FORWARDER_ADDRESS as Address,
-    relayer: privateKeyToAccount(config.RELAYER_PRIVATE_KEY as Hex),
-    keeper: privateKeyToAccount(config.KEEPER_PRIVATE_KEY as Hex),
-    attester: privateKeyToAccount(config.ATTESTER_PRIVATE_KEY as Hex),
+    relayer: account(config.RELAYER_PRIVATE_KEY),
+    keeper: account(config.KEEPER_PRIVATE_KEY),
+    attester: account(config.ATTESTER_PRIVATE_KEY),
     sender: new TxSender(publicClient, chain, transport, redis),
   };
 }

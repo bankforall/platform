@@ -1,6 +1,7 @@
 import { lazy, Suspense, type ReactNode } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router";
 import { useLocalAddress, useMe } from "@/hooks/session";
+import { usePendingBackupSync } from "@/hooks/pendingBackup";
 import { errorMessage } from "@/api/client";
 import { ErrorState, Loading } from "@/components/ui";
 import { sameAddress } from "@/lib/format";
@@ -24,14 +25,16 @@ const Admin = lazy(() => import("@/screens/Admin"));
  * Gate for the signed-in app:
  *  - logged out → /welcome
  *  - onboarding steps left (except a pending KYC review) → /onboarding
- *  - account has a key but this device does not → /restore
+ *  - account has a key but this device does not → /restore (recovery code, or key rotation status)
+ *  - a key rotation just executed → upload the new key's backup first
  */
 function RequireApp({ children, admin }: { children: ReactNode; admin?: boolean }) {
   const me = useMe();
   const local = useLocalAddress();
   const location = useLocation();
+  const syncingBackup = usePendingBackupSync(me.data, local.data);
 
-  if (me.isLoading || local.isLoading) return <Loading />;
+  if (me.isLoading || local.isLoading || syncingBackup) return <Loading />;
   if (me.isError) return <ErrorState message={errorMessage(me.error)} onRetry={() => void me.refetch()} />;
   if (!me.data) return <Navigate to={`/welcome?next=${encodeURIComponent(location.pathname)}`} replace />;
 

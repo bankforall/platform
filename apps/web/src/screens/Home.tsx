@@ -6,6 +6,7 @@ import { useMe } from "@/hooks/session";
 import { Screen } from "@/components/layout";
 import { CircleCard } from "@/components/CircleCard";
 import { Countdown } from "@/components/widgets";
+import { KeyRotationNotice } from "@/components/KeyRotationNotice";
 import { Avatar, Card, EmptyState, ErrorState, LinkButton, Loading, SectionTitle } from "@/components/ui";
 import { baht, date } from "@/lib/format";
 
@@ -40,6 +41,7 @@ export default function Home() {
       </header>
 
       <main className="px-4">
+        <KeyRotationNotice />
         {me.kycStatus === "PENDING" && (
           <p className="mb-3 rounded-xl bg-warn-soft px-4 py-3 text-sm text-amber-800">
             กำลังตรวจสอบตัวตน — สร้างหรือเข้าร่วมวงได้หลังผ่านการตรวจสอบ

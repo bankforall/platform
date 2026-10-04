@@ -32,15 +32,15 @@ Internet ──443──▶ web (Caddy: PWA + /api proxy, TLS) ──▶ api:400
 | กุญแจ | หน้าที่ | เก็บที่ | ต้องมี ETH |
 | --- | --- | --- | --- |
 | **Admin** | `DEFAULT_ADMIN_ROLE` ของ factory (pause, setCaps, จัดการ role) | **hardware wallet / multisig (Safe)** — ห้ามอยู่บนเซิร์ฟเวอร์ | เล็กน้อย |
-| **Attester** | ลงนามรับรอง KYC, key rotation, `attestSlip` | `.env.production` (hot) | ~0.005 ETH |
-| **Relayer** | ส่ง transaction แทนผู้ใช้ (จ่าย gas) | `.env.production` (hot) | ~0.02 ETH |
-| **Keeper** | เดินวงตามเวลา (เปิดซอง, ปิดประมูล, ผิดนัด, รอบถัดไป) | `.env.production` (hot) | ~0.01 ETH |
+| **Attester** | ลงนามรับรอง KYC, key rotation, `attestSlip` | container `signer` เท่านั้น (ไม่เปิดพอร์ตออกนอก, ตรวจนโยบายกับ DB ก่อนลงนาม) | ~0.005 ETH |
+| **Relayer** | ส่ง transaction แทนผู้ใช้ (จ่าย gas) | container `api` เท่านั้น | ~0.02 ETH |
+| **Keeper** | เดินวงตามเวลา (เปิดซอง, ปิดประมูล, ผิดนัด, ยอมรับแจ้งโอนที่ผู้รับไม่ตอบ, รอบถัดไป, เปลี่ยนกุญแจที่อนุมัติแล้ว) | container `worker` เท่านั้น | ~0.01 ETH |
 
 ```bash
 cast wallet new            # สร้างกุญแจ (Foundry) — ทำบนเครื่องที่ปลอดภัย
 ```
 
-- ทั้ง 3 hot keys **ต้องต่างกัน** (ระบบไม่ยอมเริ่มถ้าซ้ำกัน)
+- ทั้ง 3 hot keys **ต้องต่างกัน** และแต่ละ container ได้รับ **เฉพาะกุญแจของตัวเอง** (`docker-compose.prod.yml` ส่ง env แยกรายบริการ; ระบบไม่ยอมเริ่มถ้ามีกุญแจเกินหน้าที่)
 - worker เตือนใน log และ `/api/health` (`gasLow: true`) เมื่อยอดต่ำกว่า `MIN_GAS_BALANCE_WEI`
 - ถ้า attester key หลุด: ใช้ admin `revokeRole(ATTESTER_ROLE, old)` + `grantRole(ATTESTER_ROLE, new)` แล้วเปลี่ยนใน env
 
@@ -65,6 +65,7 @@ git clone <repo> /opt/bankforall && cd /opt/bankforall/platform/deploy
 cp .env.production.example .env.production && chmod 600 .env.production
 $EDITOR .env.production                       # ใส่ค่าให้ครบ (ดูคำอธิบายในไฟล์)
 docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+# หรือใช้ image ที่ release แล้ว (ดู "Release" ด้านล่าง): ตั้ง IMAGE_TAG=1.2.3 แล้ว `... pull && ... up -d`
 docker compose -f docker-compose.prod.yml --env-file .env.production ps
 curl https://<domain>/api/health              # {"ok":true,...,"worker":true,"gasLow":false}
 ```
@@ -80,7 +81,15 @@ curl https://<domain>/api/health              # {"ok":true,...,"worker":true,"ga
 
 1. ผู้ดูแลเข้าสู่ระบบด้วย LINE หนึ่งครั้ง
 2. `docker compose -f docker-compose.prod.yml --env-file .env.production exec api node dist/cli/promote-admin.js <userId หรือ LINE userId>`
-3. ผู้ดูแลออกจากระบบแล้วเข้าใหม่ → เมนู `/admin` (ตรวจ KYC, กู้คืนกุญแจ)
+3. ผู้ดูแลออกจากระบบแล้วเข้าใหม่ → เมนู `/admin` (ตรวจ KYC, อนุมัติคำขอเปลี่ยนกุญแจ)
+4. ตั้งผู้ดูแล **อย่างน้อย 2 คน** — การกู้บัญชีต้องให้ผู้ดูแล 2 คนที่ต่างกันอนุมัติ
+
+### Release (image สำเร็จรูป)
+
+push tag `v1.2.3` → GitHub Actions สร้าง `ghcr.io/bankforall/platform-{api,migrate,web}:1.2.3` พร้อม SBOM และ provenance attestation
+web image ฝัง chain และ contract ที่จะยอมลงนามไว้ตอน build: ตั้ง repository variables `VITE_CHAIN_ID`, `VITE_FORWARDER_ADDRESS`,
+`VITE_FACTORY_ADDRESS` (Settings → Secrets and variables → Actions → Variables) ให้ตรงกับ contract ที่ deploy แล้ว
+ตรวจ image ก่อนใช้: `gh attestation verify oci://ghcr.io/bankforall/platform-api:1.2.3 -R bankforall/platform`
 
 ## 4. งานประจำ
 
@@ -88,7 +97,9 @@ curl https://<domain>/api/health              # {"ok":true,...,"worker":true,"ga
 | --- | --- | --- |
 | ตรวจ KYC | ทุกวัน | `/admin` — ตรวจบัตรกับ selfie, ตั้งคะแนนเริ่มต้น (ค่าเริ่ม 100) |
 | เติม gas | เมื่อ `gasLow` | โอน ETH บน Base ไปที่ address ที่ log แจ้ง |
-| Backup | ทุกคืน | `deploy/backup.sh` ผ่าน cron + ส่งออกนอกเครื่อง (rclone/restic) |
+| Backup | ทุกคืน | `deploy/backup.sh` ผ่าน cron (เข้ารหัสด้วย `BACKUP_PASSPHRASE` — เก็บ passphrase นอกเซิร์ฟเวอร์) + ส่งออกนอกเครื่อง (rclone/restic) |
+| ตรวจ ingest errors | ทุกวัน | ตาราง `IngestError` ต้องว่าง; log มีคำว่า `ALERT:` ให้ดูทันที |
+| ตรวจ audit log | ทุกสัปดาห์ | ตาราง `AdminAuditLog` (ตัดสิน KYC, ดูไฟล์ KYC, อนุมัติเปลี่ยนกุญแจ) |
 | ทดสอบ restore | ทุกเดือน | restore ลงเครื่องทดสอบตามคำสั่งท้าย `backup.sh` |
 | อัปเดตระบบ | ตามรอบ release | `git pull && docker compose ... up -d --build` (migration รันเอง) |
 | Monitoring | ต่อเนื่อง | uptime check `GET /api/health` (HTTP 200 + `worker:true` + `gasLow:false`) |
@@ -100,7 +111,7 @@ curl https://<domain>/api/health              # {"ok":true,...,"worker":true,"ga
 | ฐานข้อมูลเสีย/หาย | restore จาก backup; ข้อมูลวงจะ sync จาก chain ใหม่ได้เสมอ (indexer อ่านตั้งแต่ `DEPLOY_BLOCK`) ส่วน **KYC, สลิป, ชื่อผู้ใช้** ต้องมาจาก backup |
 | `APP_ENCRYPTION_KEY` หาย | ไฟล์ KYC/สลิป/ซองประมูลที่เก็บไว้อ่านไม่ได้ถาวร → **เก็บสำเนา key แบบ offline 2 ที่** |
 | ผู้ใช้เปลี่ยนเครื่อง | ผู้ใช้กู้คืนเองด้วยรหัสกู้คืน (หน้า "กู้คืนบัญชี") |
-| ผู้ใช้หายทั้งเครื่องและรหัสกู้คืน | ยืนยันตัวตนใหม่ → ผู้ใช้สร้างกุญแจใหม่ในเครื่องใหม่ → admin เรียก `POST /api/admin/users/:id/rotate-key {newAddress}` → contract ย้ายสมาชิกภาพในทุกวงที่ยังดำเนินอยู่ (`rotateMember`, บันทึก `MemberRotated` เป็นหลักฐาน) |
+| ผู้ใช้หายทั้งเครื่องและรหัสกู้คืน | ผู้ใช้ login ด้วย LINE ในเครื่องใหม่ → "ลืมรหัสกู้คืนหรือทำเครื่องหาย" สร้างกุญแจใหม่และลงนามคำขอ → ผู้ดูแล 2 คน (คนละคน) ยืนยันตัวตนแล้วอนุมัติใน `/admin` → รอ `KEY_ROTATION_DELAY_HOURS` (ค่าเริ่ม 24 ชม., ผู้ใช้ยกเลิกได้และได้รับแจ้งเตือน) → worker ขอลายเซ็นจาก signer แล้วเรียก `rotateMember` ในทุกวงที่ยังดำเนินอยู่ (บันทึก `MemberRotated` เป็นหลักฐาน) |
 | ต้องหยุดระบบฉุกเฉิน | admin เรียก `factory.pause()` → ทุกวงหยุดรับรายการบน chain ทันที |
 | worker ค้าง | `docker compose ... restart worker` (ทำงานต่อจาก cursor ได้; รันหลายตัวได้ มี lease กันซ้ำ) |
 
@@ -109,5 +120,6 @@ curl https://<domain>/api/health              # {"ok":true,...,"worker":true,"ga
 - [ ] ความเห็นทางกฎหมาย ([legal-checklist.md](./legal-checklist.md)) และข้อความ Terms/Privacy ฉบับจริงในหน้า consent
 - [ ] Security audit ของ contract และ penetration test ของ API/web
 - [ ] เลือกผู้ให้บริการตรวจสลิปอัตโนมัติ (ตอนนี้ `SLIP_VERIFIER=none` — ผู้รับเป็นผู้ยืนยัน) และ SMS ในไทย
-- [ ] ย้าย admin key ไป multisig, ตั้ง alerting ภายนอก (เช่น UptimeRobot/Better Stack) และ log shipping
+- [ ] ย้าย factory admin ไป multisig (Safe), ตั้ง alerting ภายนอก (เช่น UptimeRobot/Better Stack) และ log shipping (ค้นหา `ALERT:` และ `audit:`)
+- [ ] WebAuthn/2FA สำหรับผู้ดูแล — ดูความเสี่ยงที่ยอมรับใน [security.md](./security.md#3-ความเสี่ยงที่ยอมรับและยังต้องทำ)
 - [ ] Pilot แบบ invite-only บน Base Sepolia → Base mainnet

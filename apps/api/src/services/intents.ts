@@ -17,13 +17,15 @@ import {
   type Address,
   type Hex,
 } from "viem";
-import { chainNow } from "../chain/clients.js";
+import { chainNow, need } from "../chain/clients.js";
 import { contractErrorMessage } from "../chain/errors.js";
 import type { Ctx } from "../context.js";
-import { badRequest, conflict, forbidden, notFound } from "../errors.js";
+import { AppError, badRequest, conflict, forbidden, notFound } from "../errors.js";
 import { ingestLogs } from "./ingest.js";
 
 const INTENT_TTL_SECONDS = 10 * 60;
+/** Relayed transactions per user per day; the relayer pays gas for each one. */
+const DAILY_RELAY_LIMIT = 100;
 const GAS_OVERHEAD = 100_000n;
 
 export interface PrepareInput {
@@ -113,6 +115,31 @@ export async function submitIntent(
   signature: Hex,
   bid?: { amount: string; salt: string },
 ): Promise<IntentResponse> {
+  // one relay at a time per user: parallel submits with the same nonce would revert at our cost
+  const lockKey = `lock:relay:${user.id}`;
+  if (!(await ctx.redis.set(lockKey, intentId, "PX", 120_000, "NX"))) {
+    throw new AppError(429, "RELAY_BUSY", "กำลังบันทึกรายการก่อนหน้า กรุณารอสักครู่");
+  }
+  try {
+    const day = new Date().toISOString().slice(0, 10);
+    const countKey = `relay:count:${user.id}:${day}`;
+    const count = await ctx.redis.incr(countKey);
+    if (count === 1) await ctx.redis.expire(countKey, 2 * 86400);
+    if (count > DAILY_RELAY_LIMIT) throw new AppError(429, "RELAY_LIMIT", "ทำรายการครบจำนวนต่อวันแล้ว กรุณาลองใหม่พรุ่งนี้");
+    return await relay(ctx, user, intentId, signature, bid);
+  } finally {
+    if ((await ctx.redis.get(lockKey)) === intentId) await ctx.redis.del(lockKey);
+  }
+}
+
+async function relay(
+  ctx: Ctx,
+  user: User,
+  intentId: string,
+  signature: Hex,
+  bid?: { amount: string; salt: string },
+): Promise<IntentResponse> {
+  const relayer = need(ctx.chain.relayer, "relayer key");
   const intent = await ctx.db.txIntent.findUnique({ where: { id: intentId } });
   if (!intent) throw notFound();
   if (intent.userId !== user.id) throw forbidden();
@@ -163,7 +190,7 @@ export async function submitIntent(
   const request = { ...message, deadline: message.deadline, signature };
   const executeData = encodeFunctionData({ abi: forwarderAbi, functionName: "execute", args: [request] });
   try {
-    await ctx.chain.publicClient.call({ account: ctx.chain.relayer, to: ctx.chain.forwarder, data: executeData });
+    await ctx.chain.publicClient.call({ account: relayer, to: ctx.chain.forwarder, data: executeData, blockTag: "pending" });
   } catch (err) {
     // the forwarder hides the inner revert; re-simulate the inner call to explain it
     const reason = await innerRevertReason(ctx, intent).catch(() => contractErrorMessage(err));
@@ -172,7 +199,7 @@ export async function submitIntent(
 
   let txHash: Hex;
   try {
-    txHash = await ctx.chain.sender.send(ctx.chain.relayer, {
+    txHash = await ctx.chain.sender.send(relayer, {
       to: ctx.chain.forwarder,
       data: executeData,
       gas: intent.gas + GAS_OVERHEAD,

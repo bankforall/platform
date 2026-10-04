@@ -4,6 +4,7 @@ import {
   circleDetail,
   circleSummary,
   intentResponse,
+  keyRotationView,
   kycReviewItem,
   meResponse,
   notificationView,
@@ -28,6 +29,8 @@ const backupSchema = walletBody.shape.backup;
 export type NotificationView = z.infer<typeof notificationView>;
 export type KycReviewItem = z.infer<typeof kycReviewItem>;
 export type PromptPayQr = z.infer<typeof promptPayQrResponse>;
+export type KeyRotationStatus = "PENDING" | "APPROVED";
+const otpResponse = z.object({ ok: z.boolean(), devCode: z.string().optional() });
 
 /** Body for `POST /circles` — amounts as strings, durations in seconds. */
 export interface CreateCircleRequest {
@@ -58,13 +61,21 @@ export const api = {
 
   // me
   me: () => request("/me", { schema: meResponse }),
-  sendOtp: (phone: string) =>
-    request("/me/phone/otp", { body: { phone }, schema: z.object({ ok: z.boolean(), devCode: z.string().optional() }) }),
+  sendOtp: (phone: string) => request("/me/phone/otp", { body: { phone }, schema: otpResponse }),
   verifyOtp: (code: string) => request("/me/phone/verify", { body: { code } }),
-  setPromptPay: (promptPayId: string) => request("/me/promptpay", { method: "PUT", body: { promptPayId } }),
+  /** Fresh OTP to the verified phone, required to change an existing PromptPay ID. */
+  stepUpOtp: () => request("/me/step-up/otp", { method: "POST", schema: otpResponse }),
+  /** `code` (step-up OTP) is required when replacing an existing PromptPay ID. */
+  setPromptPay: (promptPayId: string, code?: string) =>
+    request("/me/promptpay", { method: "PUT", body: { promptPayId, code } }),
   consent: () => request("/me/consent", { body: { version: CONSENT_VERSION } }),
-  registerWallet: (address: string, backup: WalletBackup) =>
-    request("/me/wallet", { method: "PUT", body: { address, backup } }),
+  /** `proof` = personal_sign of `walletProofMessage(me.id, address)` with the device key. */
+  registerWallet: (address: string, proof: string, backup: WalletBackup) =>
+    request("/me/wallet", { method: "PUT", body: { address, proof, backup } }),
+  /** Lost device and recovery code: ask to switch the account to a new key (two admins + 24 h). */
+  requestKeyRotation: (newAddress: string, proof: string) =>
+    request("/me/key-rotation", { body: { newAddress, proof }, schema: meResponse }),
+  cancelKeyRotation: () => request("/me/key-rotation", { method: "DELETE" }),
   walletBackup: () => request("/me/wallet/backup", { schema: backupSchema }),
   submitKyc: (form: FormData) => request("/me/kyc", { form }),
   notifications: () => request("/me/notifications", { schema: z.array(notificationView) }),
@@ -95,6 +106,8 @@ export const api = {
   },
   prepareConfirm: (id: string, payer: string) =>
     request(`/circles/${id}/payments/${payer}/confirm`, { method: "POST", schema: preparedIntent }),
+  prepareReject: (id: string, payer: string) =>
+    request(`/circles/${id}/payments/${payer}/reject`, { method: "POST", schema: preparedIntent }),
   prepareDispute: (id: string, round: number, reason: string) =>
     request(`/circles/${id}/disputes`, { body: { round, reason }, schema: preparedIntent }),
 
@@ -109,8 +122,11 @@ export const api = {
   kycImageUrl: (id: string, kind: "idCard" | "selfie") => `/api/admin/kyc/${id}/${kind}`,
   kycDecision: (id: string, approve: boolean, reason?: string, reputation?: number) =>
     request(`/admin/kyc/${id}/decision`, { body: { approve, reason, reputation } }),
-  rotateKey: (userId: string, newAddress: string) =>
-    request(`/admin/users/${userId}/rotate-key`, { body: { newAddress } }),
+  keyRotations: (status: KeyRotationStatus = "PENDING") =>
+    request(`/admin/key-rotations?status=${status}`, { schema: z.array(keyRotationView) }),
+  approveKeyRotation: (id: string) =>
+    request(`/admin/key-rotations/${id}/approve`, { method: "POST", schema: keyRotationView }),
+  rejectKeyRotation: (id: string, reason: string) => request(`/admin/key-rotations/${id}/reject`, { body: { reason } }),
 };
 
 export const qk = {
@@ -122,4 +138,5 @@ export const qk = {
   circle: (id: string) => ["circles", "detail", id] as const,
   promptPay: (id: string) => ["circles", "promptpay", id] as const,
   kyc: (status: string) => ["admin", "kyc", status] as const,
+  keyRotations: (status: string) => ["admin", "key-rotations", status] as const,
 };

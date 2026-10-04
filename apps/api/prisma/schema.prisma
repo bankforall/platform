@@ -48,6 +48,19 @@ enum SlipVerify {
   SKIPPED
 }
 
+enum OtpPurpose {
+  PHONE_VERIFY
+  STEP_UP
+}
+
+enum RotationStatus {
+  PENDING
+  APPROVED
+  EXECUTED
+  CANCELLED
+  FAILED
+}
+
 enum IntentStatus {
   PREPARED
   SUBMITTED
@@ -82,12 +95,13 @@ model User {
 
   kycSubmissions KycSubmission[]
   otps           OtpChallenge[]
-  hosted         Circle[]        @relation("host")
+  hosted         Circle[]             @relation("host")
   memberships    Membership[]
   intents        TxIntent[]
   notifications  Notification[]
   slips          Slip[]
   disputes       Dispute[]
+  keyRotations   KeyRotationRequest[]
 }
 
 model KycSubmission {
@@ -111,15 +125,16 @@ model KycSubmission {
 }
 
 model OtpChallenge {
-  id        String    @id @default(cuid())
+  id        String     @id @default(cuid())
   userId    String
-  user      User      @relation(fields: [userId], references: [id])
+  user      User       @relation(fields: [userId], references: [id])
+  purpose   OtpPurpose @default(PHONE_VERIFY)
   phone     String
   codeHash  String
-  attempts  Int       @default(0)
+  attempts  Int        @default(0)
   expiresAt DateTime
   usedAt    DateTime?
-  createdAt DateTime  @default(now())
+  createdAt DateTime   @default(now())
 
   @@index([userId, createdAt])
 }
@@ -322,4 +337,52 @@ model Dispute {
   reasonHash String
   txHash     String?
   createdAt  DateTime @default(now())
+}
+
+/// Account recovery: the user proves possession of a new key; two different admins approve; the
+/// worker switches the key on-chain after a delay during which the user can cancel.
+model KeyRotationRequest {
+  id           String         @id @default(cuid())
+  userId       String
+  user         User           @relation(fields: [userId], references: [id])
+  oldAddress   String
+  newAddress   String
+  proof        String
+  status       RotationStatus @default(PENDING)
+  /// [{ adminId, at }]
+  approvals    Json           @default("[]")
+  executeAfter DateTime?
+  reason       String?
+  executedAt   DateTime?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  @@index([status, executeAfter])
+  @@index([userId, status])
+}
+
+/// Append-only record of privileged actions (KYC decisions, key rotations).
+model AdminAuditLog {
+  id        String   @id @default(cuid())
+  adminId   String
+  action    String
+  targetId  String
+  detail    Json?
+  createdAt DateTime @default(now())
+
+  @@index([targetId, createdAt])
+}
+
+/// Events the ingester could not apply; indexing continues and an operator is alerted.
+model IngestError {
+  id         String    @id @default(cuid())
+  txHash     String
+  logIndex   Int
+  address    String
+  name       String
+  error      String
+  resolvedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@unique([txHash, logIndex])
 }

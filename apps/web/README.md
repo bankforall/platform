@@ -25,7 +25,19 @@ src/screens/    Welcome, HowItWorks, Login, onboarding/*, Restore, Home, Circles
 - Signing key generated in the browser, stored in IndexedDB encrypted with a **non-extractable** AES-GCM key.
 - Every signature requires the 6-digit PIN (PBKDF2-hashed verifier; 5 wrong tries → 5-minute lock).
 - Backup = AES-GCM(PBKDF2-SHA256(120-bit recovery code, 310k iterations)) uploaded to `PUT /api/me/wallet`; the server never sees the code.
-- Lost code → admin re-KYC + `POST /api/admin/users/:id/rotate-key`.
+- `PUT /api/me/wallet` carries a proof: personal_sign of `walletProofMessage(userId, address)` with the device key.
+- Lost device and code → "ลืมรหัสกู้คืนหรือทำเครื่องหาย" on /restore: a new key + PIN + recovery code are created on the new
+  device, `POST /api/me/key-rotation` is sent with a `keyRotationMessage` proof, two different admins approve (requester must be
+  KYC-verified), the switch happens 24 h later (the user can cancel; other devices show a warning). The new key's backup and
+  wallet proof wait in IndexedDB and are uploaded once `me.walletAddress` equals the new key.
+- No blind signing: before the PIN pad, `src/wallet/verifyIntent.ts` checks the EIP-712 domain (name, version, chain,
+  forwarder), `from` = local key, `value` = 0, decodes `data` with the factory/circle ABI (only createCircle, join, start,
+  cancel, commitBid, declarePayment, confirmReceipt, rejectPayment, dispute), checks `to` (factory, or the circle on screen),
+  the server `kind`, and the arguments against what the user entered; the sheet is rendered from the decoded call
+  (server `summary` only as small text).
+- Chain pins: production builds need `VITE_CHAIN_ID`, `VITE_FORWARDER_ADDRESS`, `VITE_FACTORY_ADDRESS` (Docker build args).
+  `/api/config` must agree with them, otherwise nothing is signed. Without pins, dev builds trust `/api/config` (console warning)
+  and production builds refuse to sign.
 
 The service worker never caches `/api/*`.
 

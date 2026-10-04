@@ -1,5 +1,6 @@
 import { circleAbi, formatBaht } from "@bankforall/shared";
 import { encodeFunctionData, getAddress, type Address, type Hex } from "viem";
+import { need } from "../chain/clients.js";
 import { contractErrorName } from "../chain/errors.js";
 import type { Ctx } from "../context.js";
 import { ingestLogs } from "./ingest.js";
@@ -58,13 +59,20 @@ async function tickCircle(ctx: Ctx, address: Address, circleId: string, now: num
   }
   if (!decided) return sent;
 
+  // only payers who never declared can be defaulted; declarations the recipient neither confirmed
+  // nor rejected in time are accepted (stops a silent recipient from defaulting honest payers)
   const defaultAfter = Number(paymentDeadline) + Number(params.grace);
+  const acceptAfter = Number(paymentDeadline) + 2 * Number(params.grace);
   if (now > defaultAfter) {
-    const open = await ctx.db.payment.findMany({
-      where: { circleId, round: r, status: { in: ["NONE", "DECLARED", "ATTESTED"] } },
-    });
-    for (const p of open) {
+    const unpaid = await ctx.db.payment.findMany({ where: { circleId, round: r, status: "NONE" } });
+    for (const p of unpaid) {
       if (await call(ctx, address, "markDefault", [getAddress(p.payer)])) sent++;
+    }
+  }
+  if (now > acceptAfter) {
+    const declared = await ctx.db.payment.findMany({ where: { circleId, round: r, status: "DECLARED" } });
+    for (const p of declared) {
+      if (await call(ctx, address, "acceptDeclared", [getAddress(p.payer)])) sent++;
     }
   }
   if (settled >= params.maxMembers - 1 && now >= Number(start) + Number(params.period)) {
@@ -77,12 +85,13 @@ async function tickCircle(ctx: Ctx, address: Address, circleId: string, now: num
 async function call(ctx: Ctx, address: Address, functionName: string, args: unknown[]): Promise<boolean> {
   const data = encodeFunctionData({ abi: circleAbi, functionName: functionName as never, args: args as never });
   try {
-    await ctx.chain.publicClient.call({ account: ctx.chain.keeper, to: address, data });
+    const keeper = need(ctx.chain.keeper, "keeper key");
+    await ctx.chain.publicClient.call({ account: keeper, to: address, data });
   } catch (err) {
     ctx.log.debug({ functionName, error: contractErrorName(err) }, "keeper call not ready");
     return false;
   }
-  const hash = await ctx.chain.sender.send(ctx.chain.keeper, { to: address, data });
+  const hash = await ctx.chain.sender.send(need(ctx.chain.keeper, "keeper key"), { to: address, data });
   const receipt = await ctx.chain.sender.wait(hash);
   if (receipt.status !== "success") {
     ctx.log.error({ functionName, hash }, "keeper tx reverted");
@@ -118,17 +127,16 @@ export async function runSlipVerification(ctx: Ctx): Promise<void> {
       receiverPromptPayId: recipient.promptPayId,
     });
     let attestTx: string | null = null;
+    // the verdict is stored first: the signer re-checks it before attesting on-chain
+    await ctx.db.slip.update({ where: { id: slip.id }, data: { verify: result.status, verifyDetail: result.detail as object } });
     if (result.status === "VERIFIED" && payment.status === "DECLARED" && slip.circle.address) {
-      const data = encodeFunctionData({
-        abi: circleAbi,
-        functionName: "attestSlip",
-        args: [getAddress(slip.payer), `0x${slip.sha256}`],
-      });
-      const hash = await ctx.chain.sender.send(ctx.chain.attester, { to: getAddress(slip.circle.address), data });
-      const receipt = await ctx.chain.sender.wait(hash);
-      if (receipt.status === "success") {
+      try {
+        const hash = await ctx.signer.attestSlip(slip.id);
+        const receipt = await ctx.chain.publicClient.getTransactionReceipt({ hash });
         await ingestLogs(ctx, receipt.logs);
         attestTx = hash;
+      } catch (err) {
+        ctx.log.error({ err, slip: slip.id }, "slip attestation failed");
       }
     }
     if (result.status === "FAILED") {

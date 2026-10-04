@@ -1,4 +1,5 @@
 import { generatePrivateKey, privateKeyToAccount, type PrivateKeyAccount } from "viem/accounts";
+import type { WalletBackup } from "@bankforall/shared";
 import { constantTimeEqual, fromBase64, hashPin, randomBytes, toBase64 } from "./crypto";
 import { idb } from "./idb";
 
@@ -26,6 +27,7 @@ const K_DEVICE_KEY = "deviceKey";
 const K_WALLET = "wallet";
 const K_PIN = "pin";
 const K_LOCK = "pinLock";
+const K_PENDING_BACKUP = "pendingBackup";
 
 export const MAX_PIN_ATTEMPTS = 5;
 export const PIN_LOCK_MS = 5 * 60 * 1000;
@@ -116,6 +118,30 @@ export async function clearDevice(): Promise<void> {
   await idb.del(K_WALLET);
   await idb.del(K_PIN);
   await idb.del(K_LOCK);
+  await idb.del(K_PENDING_BACKUP);
+}
+
+/**
+ * Backup of a key created for a key rotation, kept on this device until the rotation executes and
+ * it can be uploaded with `PUT /api/me/wallet`. `backup` is encrypted with the new recovery code and
+ * `proof` is the wallet proof signature, so nothing here unlocks the key.
+ */
+export interface PendingBackup {
+  address: `0x${string}`;
+  proof: `0x${string}`;
+  backup: WalletBackup;
+}
+
+export async function savePendingBackup(pending: PendingBackup): Promise<void> {
+  await idb.set(K_PENDING_BACKUP, pending);
+}
+
+export async function pendingBackup(): Promise<PendingBackup | null> {
+  return (await idb.get<PendingBackup>(K_PENDING_BACKUP)) ?? null;
+}
+
+export async function clearPendingBackup(): Promise<void> {
+  await idb.del(K_PENDING_BACKUP);
 }
 
 export function newPrivateKey(): `0x${string}` {

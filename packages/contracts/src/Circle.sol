@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.37;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
@@ -117,6 +117,10 @@ contract Circle is Initializable, ERC2771Context {
     event MemberDefaulted(
         uint8 indexed round, address indexed payer, address indexed recipient, uint128 amount
     );
+    event PaymentRejected(uint8 indexed round, address indexed payer, address indexed recipient);
+    event PaymentAccepted(
+        uint8 indexed round, address indexed payer, address indexed recipient, uint128 amount
+    );
     event Disputed(uint8 indexed round, address indexed member, bytes32 reasonHash);
     event MemberRotated(address indexed oldMember, address indexed newMember);
 
@@ -163,6 +167,7 @@ contract Circle is Initializable, ERC2771Context {
         external
         initializer
     {
+        if (host_ == address(0)) revert NotHost();
         factory = CircleFactory(msg.sender);
         host = host_;
         _params = p;
@@ -190,8 +195,8 @@ contract Circle is Initializable, ERC2771Context {
     function cancel() external inStatus(Status.Open) {
         if (_msgSender() != host) revert NotHost();
         status = Status.Cancelled;
-        factory.onCircleClosed(host);
         emit CircleCancelled();
+        factory.onCircleClosed(host);
     }
 
     /// @notice Host starts the circle once every seat is filled; round 1 opens immediately.
@@ -230,6 +235,7 @@ contract Circle is Initializable, ERC2771Context {
         if (!rd.bidding || block.timestamp < rd.biddingEnds || block.timestamp >= rd.revealEnds) {
             revert OutsideWindow();
         }
+        if (!memberInfo[member].exists) revert NotMember();
         Commit storage c = commits[r][member];
         if (c.hash == bytes32(0) || c.revealed || c.hash != bidHash(r, member, amount, salt)) {
             revert BadReveal();
@@ -264,19 +270,22 @@ contract Circle is Initializable, ERC2771Context {
         _requirePayer(r, _msgSender());
         Payment storage pay = payments[r][_msgSender()];
         if (pay.status != PayStatus.None) revert BadPaymentStatus();
+        if (block.timestamp > _defaultAfter(r)) revert OutsideWindow();
         uint128 due = amountDue(_msgSender());
         payments[r][_msgSender()] = Payment(PayStatus.Declared, due, slipHash);
         emit PaymentDeclared(r, _msgSender(), rounds[r].recipient, due, slipHash);
     }
 
     /// @notice Backend confirms the slip was verified with the bank/slip-verification API.
+    ///         A verified payment counts as settled and can no longer be rejected or defaulted.
     function attestSlip(address payer, bytes32 slipHash) external whenNotPaused inStatus(Status.Active) {
         if (!factory.hasRole(factory.ATTESTER_ROLE(), _msgSender())) revert NotAttester();
         uint8 r = currentRound;
         Payment storage pay = payments[r][payer];
         if (pay.status != PayStatus.Declared) revert BadPaymentStatus();
         if (pay.slipHash != slipHash) revert SlipMismatch();
-        pay.status = PayStatus.Attested;
+        pay.status = PayStatus.Attested; // a bank-verified slip settles the payment
+        rounds[r].settled += 1;
         emit SlipAttested(r, payer, slipHash);
     }
 
@@ -289,23 +298,50 @@ contract Circle is Initializable, ERC2771Context {
         Payment storage pay = payments[r][payer];
         if (pay.status == PayStatus.Confirmed) revert BadPaymentStatus();
         if (pay.status == PayStatus.None) pay.amount = amountDue(payer);
-        if (pay.status != PayStatus.Defaulted) rounds[r].settled += 1;
+        if (!_settled(pay.status)) rounds[r].settled += 1;
         pay.status = PayStatus.Confirmed;
         emit PaymentConfirmed(r, payer, _msgSender(), pay.amount);
     }
 
-    /// @notice Anyone can record a default once the payment window plus grace period has passed.
-    ///         The member keeps their obligations but can no longer bid or receive the pool first.
+    /// @notice The recipient states that a declared transfer never arrived. The payment goes back to
+    ///         unpaid (the payer may declare again until the default time). Only possible until
+    ///         `paymentDeadline + 2 * grace` and never for bank-verified (attested) slips.
+    function rejectPayment(address payer) external whenNotPaused inStatus(Status.Active) {
+        uint8 r = currentRound;
+        _requirePayer(r, payer);
+        if (_msgSender() != rounds[r].recipient) revert NotRecipient();
+        Payment storage pay = payments[r][payer];
+        if (pay.status != PayStatus.Declared) revert BadPaymentStatus();
+        if (block.timestamp > _acceptAfter(r)) revert OutsideWindow();
+        pay.status = PayStatus.None;
+        pay.slipHash = bytes32(0);
+        emit PaymentRejected(r, payer, _msgSender());
+    }
+
+    /// @notice A declared payment the recipient neither confirmed nor rejected in time is accepted.
+    ///         This stops a recipient from griefing honest payers into default by staying silent.
+    function acceptDeclared(address payer) external whenNotPaused inStatus(Status.Active) {
+        uint8 r = currentRound;
+        _requirePayer(r, payer);
+        Payment storage pay = payments[r][payer];
+        if (pay.status != PayStatus.Declared) revert BadPaymentStatus();
+        if (block.timestamp <= _acceptAfter(r)) revert TooEarly();
+        pay.status = PayStatus.Confirmed;
+        rounds[r].settled += 1;
+        emit PaymentAccepted(r, payer, rounds[r].recipient, pay.amount);
+    }
+
+    /// @notice Anyone can record a default once the payment window plus grace period has passed and
+    ///         the payer has not declared a payment. The member keeps their obligations but can no
+    ///         longer bid or receive the pool first.
     function markDefault(address payer) external whenNotPaused inStatus(Status.Active) {
         uint8 r = currentRound;
         _requirePayer(r, payer);
         Round storage rd = rounds[r];
-        if (block.timestamp <= uint256(rd.paymentDeadline) + _params.grace) revert TooEarly();
+        if (block.timestamp <= _defaultAfter(r)) revert TooEarly();
         Payment storage pay = payments[r][payer];
-        if (pay.status == PayStatus.Confirmed || pay.status == PayStatus.Defaulted) {
-            revert BadPaymentStatus();
-        }
-        if (pay.status == PayStatus.None) pay.amount = amountDue(payer);
+        if (pay.status != PayStatus.None) revert BadPaymentStatus();
+        pay.amount = amountDue(payer);
         pay.status = PayStatus.Defaulted;
         memberInfo[payer].defaulted = true;
         rd.settled += 1;
@@ -320,8 +356,8 @@ contract Circle is Initializable, ERC2771Context {
         if (block.timestamp < uint256(rd.start) + _params.period) revert TooEarly();
         if (currentRound == _params.maxMembers) {
             status = Status.Completed;
-            factory.onCircleClosed(host);
             emit CircleCompleted();
+            factory.onCircleClosed(host);
         } else {
             _openRound(currentRound + 1);
         }
@@ -336,7 +372,8 @@ contract Circle is Initializable, ERC2771Context {
     /// @notice Replaces a member's key (lost or compromised device) with an ATTESTER approval
     ///         given after re-verifying the person's identity. History stays under the old address;
     ///         the membership, seat, win and default status and the current round move to the new one.
-    ///         A sealed bid committed under the old key cannot be revealed and must be re-committed.
+    ///         An unrevealed sealed bid of the old key is discarded (it is bound to the old address);
+    ///         the member may commit again with the new key while the commit window is open.
     function rotateMember(address oldMember, address newMember, uint64 deadline, bytes calldata sig)
         external
         whenNotPaused
@@ -359,12 +396,13 @@ contract Circle is Initializable, ERC2771Context {
             payments[r][newMember] = payments[r][oldMember];
             delete payments[r][oldMember];
             if (_best[r].bidder == oldMember) _best[r].bidder = newMember;
+            if (!commits[r][oldMember].revealed) delete commits[r][oldMember];
         }
+        emit MemberRotated(oldMember, newMember);
         if (host == oldMember) {
             host = newMember;
             factory.onHostRotated(oldMember, newMember);
         }
-        emit MemberRotated(oldMember, newMember);
     }
 
     // ───────────────────────────── views ─────────────────────────────
@@ -485,6 +523,20 @@ contract Circle is Initializable, ERC2771Context {
             if (firstUnwon == address(0)) firstUnwon = who;
         }
         return firstUnwon;
+    }
+
+    /// @dev After this, unpaid (undeclared) payers can be marked in default.
+    function _defaultAfter(uint8 r) private view returns (uint256) {
+        return uint256(rounds[r].paymentDeadline) + _params.grace;
+    }
+
+    /// @dev Until this, the recipient may reject a declared payment; afterwards it is accepted.
+    function _acceptAfter(uint8 r) private view returns (uint256) {
+        return uint256(rounds[r].paymentDeadline) + 2 * uint256(_params.grace);
+    }
+
+    function _settled(PayStatus s) private pure returns (bool) {
+        return s == PayStatus.Attested || s == PayStatus.Confirmed || s == PayStatus.Defaulted;
     }
 
     function _eligible(address who) private view returns (bool) {

@@ -64,7 +64,22 @@ export async function ingestLogs(ctx: Ctx, logs: Log[]): Promise<number> {
       applied++;
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") continue; // already ingested
-      throw err;
+      // One bad event must not stop indexing for every circle: record it, alert, move on.
+      ctx.log.error({ err, tx: log.transactionHash, logIndex: log.logIndex, event: log.eventName }, "ALERT: ingest failed");
+      await ctx.db.ingestError
+        .upsert({
+          where: { txHash_logIndex: { txHash: log.transactionHash!, logIndex: log.logIndex! } },
+          create: {
+            txHash: log.transactionHash!,
+            logIndex: log.logIndex!,
+            address,
+            name: log.eventName,
+            error: String((err as Error).message ?? err).slice(0, 2000),
+          },
+          update: { error: String((err as Error).message ?? err).slice(0, 2000) },
+        })
+        .catch((e) => ctx.log.error({ err: e }, "could not record ingest error"));
+      continue;
     }
     for (const f of followUps) {
       try {
@@ -213,8 +228,8 @@ async function apply(
           paymentDeadline: new Date(Number(log.args.paymentDeadline) * 1000),
         },
       });
-      await tx.membership.update({
-        where: { circleId_address: { circleId: circleId!, address: recipient } },
+      await tx.membership.updateMany({
+        where: { circleId: circleId!, address: recipient },
         data: { hasWon: true, wonRound: r, wonBid: log.args.winningBid },
       });
       const circle = await tx.circle.findUniqueOrThrow({ where: { id: circleId! } });
@@ -265,14 +280,34 @@ async function apply(
       }
       return;
     }
+    case "PaymentRejected": {
+      // the recipient says the money never arrived: back to unpaid (the only allowed downgrade)
+      const r = log.args.round;
+      const payer = lower(log.args.payer);
+      await tx.payment.updateMany({
+        where: { circleId: circleId!, round: r, payer, status: "DECLARED" },
+        data: { status: "NONE", slipHash: null, slipId: null, txHash: log.transactionHash! },
+      });
+      later.push(() =>
+        notifyAddress(ctx, payer, {
+          kind: "payment_rejected",
+          title: `ผู้รับแจ้งว่ายังไม่ได้รับเงินรอบที่ ${r}`,
+          body: "ตรวจสอบการโอนอีกครั้ง แล้วแจ้งโอนใหม่ก่อนหมดเวลา หากโอนแล้วจริงให้แจ้งปัญหาในหน้าวง",
+          circleId: circleId!,
+        }),
+      );
+      return;
+    }
     case "PaymentDeclared":
     case "SlipAttested":
     case "PaymentConfirmed":
+    case "PaymentAccepted":
     case "MemberDefaulted": {
       const status: PaymentStatus = {
         PaymentDeclared: "DECLARED",
         SlipAttested: "ATTESTED",
         PaymentConfirmed: "CONFIRMED",
+        PaymentAccepted: "CONFIRMED",
         MemberDefaulted: "DEFAULTED",
       }[log.eventName] as PaymentStatus;
       const r = log.args.round;
@@ -300,10 +335,7 @@ async function apply(
         where: { circleId_address: { circleId: circleId!, address: payer } },
       });
       if (log.eventName === "MemberDefaulted") {
-        await tx.membership.update({
-          where: { circleId_address: { circleId: circleId!, address: payer } },
-          data: { defaulted: true },
-        });
+        await tx.membership.updateMany({ where: { circleId: circleId!, address: payer }, data: { defaulted: true } });
       }
       if (membership?.userId && (status === "CONFIRMED" || status === "DEFAULTED")) {
         const userId = membership.userId;
@@ -322,14 +354,20 @@ async function apply(
           }),
         );
       }
-      if (log.eventName === "PaymentConfirmed" && membership?.userId) {
+      if ((log.eventName === "PaymentConfirmed" || log.eventName === "PaymentAccepted") && membership?.userId) {
         const userId = membership.userId;
         later.push(() =>
           notify(ctx, {
             userId,
             kind: "payment_confirmed",
-            title: `ผู้รับยืนยันการรับเงินรอบที่ ${r} แล้ว ✓`,
-            body: "บันทึกถาวรแล้ว",
+            title:
+              log.eventName === "PaymentAccepted"
+                ? `การชำระรอบที่ ${r} ถือว่าเรียบร้อย ✓`
+                : `ผู้รับยืนยันการรับเงินรอบที่ ${r} แล้ว ✓`,
+            body:
+              log.eventName === "PaymentAccepted"
+                ? "ผู้รับไม่ได้ปฏิเสธภายในเวลาที่กำหนด ระบบจึงบันทึกว่าได้รับเงินแล้ว"
+                : "บันทึกถาวรแล้ว",
             circleId: circleId!,
           }),
         );
@@ -372,8 +410,8 @@ async function apply(
       const oldA = lower(log.args.oldMember);
       const newA = lower(log.args.newMember);
       const user = await tx.user.findUnique({ where: { walletAddress: newA }, select: { id: true } });
-      await tx.membership.update({
-        where: { circleId_address: { circleId: circleId!, address: oldA } },
+      await tx.membership.updateMany({
+        where: { circleId: circleId!, address: oldA },
         data: { address: newA, ...(user ? { userId: user.id } : {}) },
       });
       const circle = await tx.circle.findUniqueOrThrow({ where: { id: circleId! } });

@@ -29,6 +29,8 @@ export function JoinPanel({ circle, inviteCode }: { circle: CircleSummary; invit
     const res = await run({
       title: "เข้าร่วมวง",
       prepare: () => api.prepareJoin(circle.id, seat, inviteCode),
+      expect: { kind: "join", circle: circle.address, seat },
+      display: { circleName: circle.name, fixSeats: isFix },
       successMessage: `เข้าร่วมวง ${circle.name} แล้ว`,
     });
     if (res?.status === "CONFIRMED") navigate(`/circles/${circle.id}`, { replace: true });

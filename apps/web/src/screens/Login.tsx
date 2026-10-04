@@ -1,3 +1,4 @@
+import { SOURCE_URL } from "@/lib/source";
 import { useState } from "react";
 import { Navigate, useNavigate, useSearchParams } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
@@ -73,6 +74,11 @@ export default function Login() {
 
         <p className="mt-10 text-center text-xs text-ink-muted">
           การเข้าสู่ระบบถือว่าคุณยอมรับ ข้อกำหนดการใช้งาน และ นโยบายความเป็นส่วนตัว ซึ่งจะแสดงให้อ่านในขั้นตอนถัดไป
+        </p>
+        <p className="mt-3 text-center text-xs text-ink-muted">
+          <a href={SOURCE_URL} target="_blank" rel="noreferrer" className="underline">
+            ซอร์สโค้ด (AGPL-3.0)
+          </a>
         </p>
       </main>
     </Screen>

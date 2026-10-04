@@ -1,11 +1,8 @@
-import { Prisma, type User } from "../db.js";
-import { circleAbi } from "@bankforall/shared";
-import { encodeFunctionData, getAddress, type Address } from "viem";
-import { signKeyRotation } from "../chain/signing.js";
+import type { User } from "../db.js";
 import type { Ctx } from "../context.js";
 import { hmac } from "../crypto.js";
 import { badRequest, conflict, notFound } from "../errors.js";
-import { ingestLogs } from "./ingest.js";
+import { audit } from "./audit.js";
 import { notify } from "./notify.js";
 import { recomputeReputation } from "./reputation.js";
 
@@ -17,11 +14,23 @@ export interface Upload {
   contentType: string;
 }
 
+/** Detects the image type from its first bytes; the client's MIME type is not trusted. */
+export function sniffImage(data: Buffer): string | null {
+  if (data.length < 12) return null;
+  if (data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff) return "image/jpeg";
+  if (data.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return "image/png";
+  if (data.toString("ascii", 0, 4) === "RIFF" && data.toString("ascii", 8, 12) === "WEBP") return "image/webp";
+  const brand = data.toString("ascii", 4, 12);
+  if (/^ftyp(heic|heix|mif1|msf1|hevc)/.test(brand)) return "image/heic";
+  return null;
+}
+
 export function checkImage(file: Upload | undefined, label: string): Upload {
   if (!file) throw badRequest(`กรุณาแนบ${label}`);
-  if (!IMAGE_TYPES.has(file.contentType)) throw badRequest(`${label}ต้องเป็นไฟล์รูปภาพ`);
   if (file.data.length > MAX_IMAGE_BYTES) throw badRequest(`${label}มีขนาดเกิน 8MB`);
-  return file;
+  const type = sniffImage(file.data);
+  if (!type || !IMAGE_TYPES.has(type)) throw badRequest(`${label}ต้องเป็นไฟล์รูปภาพ (JPEG, PNG, WebP หรือ HEIC)`);
+  return { data: file.data, contentType: type };
 }
 
 /** Thai national ID checksum (mod 11). */
@@ -86,7 +95,8 @@ export async function listKyc(ctx: Ctx, status: "PENDING" | "APPROVED" | "REJECT
 export async function kycFile(ctx: Ctx, id: string, which: "idCard" | "selfie") {
   const k = await ctx.db.kycSubmission.findUnique({ where: { id } });
   if (!k) throw notFound();
-  return ctx.storage.get(which === "idCard" ? k.idCardKey : k.selfieKey);
+  const data = await ctx.storage.get(which === "idCard" ? k.idCardKey : k.selfieKey);
+  return { data, contentType: sniffImage(data) ?? "application/octet-stream" };
 }
 
 export async function decideKyc(
@@ -117,6 +127,11 @@ export async function decideKyc(
       data: { kycStatus: status, ...(decision.reputation !== undefined ? { reputationBase: decision.reputation } : {}) },
     }),
   ]);
+  await audit(ctx, reviewer.id, decision.approve ? "kyc.approve" : "kyc.reject", id, {
+    userId: k.userId,
+    reason: decision.reason,
+    reputation: decision.reputation,
+  });
   await recomputeReputation(ctx, k.userId);
   await notify(ctx, {
     userId: k.userId,
@@ -124,43 +139,4 @@ export async function decideKyc(
     title: decision.approve ? "ยืนยันตัวตนสำเร็จ ✓" : "ยืนยันตัวตนไม่ผ่าน",
     body: decision.approve ? "คุณสร้างหรือเข้าร่วมวงแชร์ได้แล้ว" : `เหตุผล: ${decision.reason}`,
   });
-}
-
-/**
- * Account recovery after the user lost both their device and recovery code: once staff have
- * re-verified the person, the attester approves replacing their key in every open/active circle.
- */
-export async function rotateUserKey(ctx: Ctx, userId: string, newAddress: Address) {
-  const user = await ctx.db.user.findUnique({ where: { id: userId } });
-  if (!user?.walletAddress) throw notFound("ผู้ใช้ยังไม่มีกุญแจ");
-  const next = newAddress.toLowerCase();
-  if (await ctx.db.user.findUnique({ where: { walletAddress: next } })) throw conflict("ที่อยู่นี้ถูกใช้แล้ว");
-  const old = getAddress(user.walletAddress);
-  const memberships = await ctx.db.membership.findMany({
-    where: { address: user.walletAddress, circle: { status: { in: ["OPEN", "ACTIVE"] } } },
-    include: { circle: true },
-  });
-  // register the new key first so ingested MemberRotated events link memberships to this user
-  await ctx.db.user.update({ where: { id: userId }, data: { walletAddress: next, walletBackup: Prisma.DbNull, sessionVersion: { increment: 1 } } });
-  const rotated: string[] = [];
-  for (const m of memberships) {
-    const circle = getAddress(m.circle.address!);
-    const { deadline, signature } = await signKeyRotation(ctx.chain, circle, old, getAddress(next));
-    const hash = await ctx.chain.sender.send(ctx.chain.keeper, {
-      to: circle,
-      data: encodeFunctionData({
-        abi: circleAbi,
-        functionName: "rotateMember",
-        args: [old, getAddress(next), deadline, signature],
-      }),
-    });
-    const receipt = await ctx.chain.sender.wait(hash);
-    if (receipt.status === "success") {
-      await ingestLogs(ctx, receipt.logs);
-      rotated.push(m.circleId);
-    } else {
-      ctx.log.error({ circle: m.circleId, hash }, "rotateMember failed");
-    }
-  }
-  return { rotated, total: memberships.length };
 }

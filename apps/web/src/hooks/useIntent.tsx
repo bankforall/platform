@@ -1,22 +1,35 @@
 import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { forwardRequestTypes, toTypedDataMessage, type IntentResponse, type PreparedIntent } from "@bankforall/shared";
-import { api } from "@/api/endpoints";
+import { api, qk } from "@/api/endpoints";
 import { errorMessage } from "@/api/client";
 import { BottomSheet, PinPad, useToast } from "@/components/overlay";
 import { Button, Spinner } from "@/components/ui";
-import { PinError, unlock } from "@/wallet/device";
+import { PinError, localAddress, unlock } from "@/wallet/device";
+import { resolveTrustedChain } from "@/wallet/chain";
+import {
+  SigningRefusedError,
+  verifyIntent,
+  type IntentDisplay,
+  type IntentExpectation,
+  type VerifiedIntent,
+} from "@/wallet/verifyIntent";
 
 /**
- * Every on-chain action: prepare (API) → confirm summary → PIN → sign EIP-712 forward request
- * on this device → submit (API relays) → result. Exposed as `useIntent().run(...)`.
+ * Every on-chain action: prepare (API) → verify and decode the forward request on this device →
+ * confirm (rendered from the decoded call) → PIN → sign EIP-712 → submit (API relays) → result.
+ * Exposed as `useIntent().run(...)`.
  */
 
 export interface RunIntentOptions {
   /** Calls a prepare route and returns the intent to sign. */
   prepare: () => Promise<PreparedIntent>;
-  /** Shown before the server summary is available. */
+  /** Sheet title. */
   title: string;
+  /** What the user asked for; the prepared request is refused unless it matches. */
+  expect: IntentExpectation;
+  /** Names and amounts used to describe the decoded call. */
+  display?: IntentDisplay;
   /** commitBid: amount + salt sent with the signature so the server can reveal on time. */
   bid?: { amount: string; salt: string };
   successMessage?: string;
@@ -25,10 +38,10 @@ export interface RunIntentOptions {
 type Phase =
   | { kind: "idle" }
   | { kind: "preparing" }
-  | { kind: "confirm"; intent: PreparedIntent; pinError: string | null; locked: boolean }
+  | { kind: "confirm"; intent: PreparedIntent; verified: VerifiedIntent; pinError: string | null; locked: boolean }
   | { kind: "submitting" }
   | { kind: "done"; result: IntentResponse }
-  | { kind: "failed"; message: string };
+  | { kind: "failed"; message: string; refused?: boolean };
 
 interface Ctx {
   run: (opts: RunIntentOptions) => Promise<IntentResponse | null>;
@@ -61,25 +74,35 @@ export function IntentProvider({ children }: { children: ReactNode }) {
         current.current = { opts, resolve };
         setTitle(opts.title);
         setPhase({ kind: "preparing" });
-        opts
-          .prepare()
-          .then((intent) => setPhase({ kind: "confirm", intent, pinError: null, locked: false }))
-          .catch((e) => setPhase({ kind: "failed", message: errorMessage(e) }));
+        prepareAndVerify(opts)
+          .then(({ intent, verified }) => setPhase({ kind: "confirm", intent, verified, pinError: null, locked: false }))
+          .catch((e) => setPhase({ kind: "failed", message: errorMessage(e), refused: e instanceof SigningRefusedError }));
       }),
     [],
   );
 
-  const sign = async (intent: PreparedIntent, pin: string) => {
+  async function prepareAndVerify(opts: RunIntentOptions) {
+    const intent = await opts.prepare();
+    const [chain, local] = await Promise.all([
+      resolveTrustedChain(() => queryClient.fetchQuery({ queryKey: qk.config, queryFn: api.config, staleTime: Infinity })),
+      localAddress(),
+    ]);
+    if (!local) throw new SigningRefusedError("ไม่พบกุญแจบนเครื่องนี้ กรุณากู้คืนบัญชี");
+    const verified = verifyIntent(intent, { chain, localAddress: local, expect: opts.expect, display: opts.display });
+    return { intent, verified };
+  }
+
+  const sign = async (intent: PreparedIntent, verified: VerifiedIntent, pin: string) => {
     let account;
     try {
       account = await unlock(pin);
     } catch (e) {
       const locked = e instanceof PinError && !!e.lockedUntil;
-      setPhase({ kind: "confirm", intent, pinError: errorMessage(e), locked });
+      setPhase({ kind: "confirm", intent, verified, pinError: errorMessage(e), locked });
       return;
     }
     if (account.address.toLowerCase() !== intent.typedData.message.from.toLowerCase()) {
-      setPhase({ kind: "failed", message: "กุญแจบนเครื่องนี้ไม่ตรงกับบัญชี กรุณากู้คืนบัญชีในหน้าโปรไฟล์" });
+      setPhase({ kind: "failed", message: "กุญแจบนเครื่องนี้ไม่ตรงกับบัญชี กรุณากู้คืนบัญชีในหน้าโปรไฟล์", refused: true });
       return;
     }
     setPhase({ kind: "submitting" });
@@ -91,7 +114,8 @@ export function IntentProvider({ children }: { children: ReactNode }) {
         primaryType: "ForwardRequest",
         message: toTypedDataMessage(message),
       });
-      const result = await api.submitIntent(intent.id, signature, current.current?.opts.bid);
+      const bid = verified.kind === "commitBid" ? current.current?.opts.bid : undefined;
+      const result = await api.submitIntent(intent.id, signature, bid);
       await queryClient.invalidateQueries();
       if (result.status === "CONFIRMED") {
         setPhase({ kind: "done", result });
@@ -120,12 +144,12 @@ export function IntentProvider({ children }: { children: ReactNode }) {
         {phase.kind === "submitting" && <Busy label="กำลังบันทึกถาวร… อาจใช้เวลาสักครู่" />}
         {phase.kind === "confirm" && (
           <div>
-            <div className="mb-5 rounded-2xl bg-primary-soft p-4 text-sm text-ink">{phase.intent.summary}</div>
+            <ConfirmDetails verified={phase.verified} />
             <PinPad
               label="ยืนยันด้วย PIN 6 หลัก"
               error={phase.pinError}
               disabled={phase.locked}
-              onComplete={(pin) => void sign(phase.intent, pin)}
+              onComplete={(pin) => void sign(phase.intent, phase.verified, pin)}
             />
             <p className="mt-4 text-center text-xs text-ink-muted">
               รายการนี้จะถูกบันทึกถาวรในชื่อของคุณและตรวจสอบย้อนหลังได้
@@ -149,7 +173,7 @@ export function IntentProvider({ children }: { children: ReactNode }) {
             <div className="flex h-16 w-16 items-center justify-center rounded-full bg-danger-soft text-3xl text-danger" aria-hidden>
               !
             </div>
-            <p className="text-lg font-semibold text-ink">ทำรายการไม่สำเร็จ</p>
+            <p className="text-lg font-semibold text-ink">{phase.refused ? "หยุดรายการเพื่อความปลอดภัย" : "ทำรายการไม่สำเร็จ"}</p>
             <p className="text-sm text-ink-muted">{phase.message}</p>
             <Button block variant="secondary" onClick={close}>
               ปิด
@@ -158,6 +182,28 @@ export function IntentProvider({ children }: { children: ReactNode }) {
         )}
       </BottomSheet>
     </IntentContext.Provider>
+  );
+}
+
+function ConfirmDetails({ verified }: { verified: VerifiedIntent }) {
+  return (
+    <div className="mb-5 rounded-2xl bg-primary-soft p-4 text-ink" data-testid="intent-confirm">
+      <p className="font-semibold">{verified.headline}</p>
+      {verified.details.length > 0 && (
+        <dl className="mt-2 space-y-1 text-sm">
+          {verified.details.map((d) => (
+            <div key={d.label} className="flex justify-between gap-3">
+              <dt className="text-ink-muted">{d.label}</dt>
+              <dd className="text-right font-medium">{d.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      <p className="mt-3 border-t border-primary/10 pt-2 text-xs text-ink-muted">
+        <span className="sr-only">ข้อความจากระบบ: </span>
+        {verified.serverSummary}
+      </p>
+    </div>
   );
 }
 

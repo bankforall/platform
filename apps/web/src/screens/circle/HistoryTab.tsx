@@ -19,6 +19,8 @@ export default function HistoryTab({ circle }: TabProps) {
     const res = await run({
       title: "แจ้งปัญหา",
       prepare: () => api.prepareDispute(circle.id, round, reason.trim()),
+      expect: { kind: "dispute", circle: circle.address, dispute: { round, reason: reason.trim() } },
+      display: { circleName: circle.name },
       successMessage: "บันทึกการแจ้งปัญหาแล้ว เจ้าหน้าที่จะติดต่อกลับ",
     });
     if (res?.status === "CONFIRMED") setReason("");

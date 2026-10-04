@@ -1,10 +1,13 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, qk, type KycReviewItem } from "@/api/endpoints";
+import type { KeyRotationView } from "@bankforall/shared";
+import { api, qk, type KeyRotationStatus, type KycReviewItem } from "@/api/endpoints";
 import { errorMessage } from "@/api/client";
 import { Header, Screen } from "@/components/layout";
 import { useToast } from "@/components/overlay";
-import { Button, Card, Chip, EmptyState, ErrorState, Field, Loading } from "@/components/ui";
+import { Button, Card, Chip, EmptyState, ErrorState, Field, KeyValue, Loading } from "@/components/ui";
+import { useMe } from "@/hooks/session";
+import { shortAddress } from "@/lib/format";
 import { Tabs } from "@/components/widgets";
 
 type Status = "PENDING" | "APPROVED" | "REJECTED";
@@ -67,41 +70,135 @@ function Review({ item, onDone }: { item: KycReviewItem; onDone: () => void }) {
   );
 }
 
-function RotateKey() {
+const rotationStatusText: Record<KeyRotationView["status"], string> = {
+  PENDING: "รออนุมัติ",
+  APPROVED: "รอครบเวลา",
+  EXECUTED: "เปลี่ยนแล้ว",
+  CANCELLED: "ยกเลิก",
+  FAILED: "ไม่สำเร็จ",
+};
+
+function RotationItem({ item, myId, onDone }: { item: KeyRotationView; myId: string | undefined; onDone: () => void }) {
   const toast = useToast();
-  const [userId, setUserId] = useState("");
-  const [address, setAddress] = useState("");
+  const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
-  const valid = userId.trim().length > 0 && /^0x[0-9a-fA-F]{40}$/.test(address);
+  const approvedByMe = item.approvals.some((a) => a.adminId === myId);
+
+  const approve = async () => {
+    if (!window.confirm(`อนุมัติการเปลี่ยนกุญแจของ ${item.displayName}? ยืนยันตัวตนผู้ขอแล้วใช่ไหม`)) return;
+    setBusy(true);
+    try {
+      const updated = await api.approveKeyRotation(item.id);
+      toast(updated.approvals.length >= 2 ? "อนุมัติครบ 2 คนแล้ว จะเปลี่ยนกุญแจหลังครบ 24 ชั่วโมง" : "อนุมัติแล้ว รอผู้ดูแลอีก 1 คน", "success");
+      onDone();
+    } catch (e) {
+      toast(errorMessage(e), "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const reject = async () => {
+    if (reason.trim().length < 3) return toast("ระบุเหตุผลที่ไม่อนุมัติ", "error");
+    setBusy(true);
+    try {
+      await api.rejectKeyRotation(item.id, reason.trim());
+      toast("ปฏิเสธคำขอแล้ว", "success");
+      onDone();
+    } catch (e) {
+      toast(errorMessage(e), "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
-    <Card className="space-y-3">
-      <h3 className="font-semibold text-ink">ย้ายกุญแจให้ผู้ใช้ที่ทำรหัสกู้คืนหาย</h3>
-      <p className="text-sm text-ink-muted">ทำหลังยืนยันตัวตนใหม่ (วิดีโอคอลคู่บัตร) แล้วเท่านั้น สมาชิกภาพในทุกวงจะย้ายไปยังกุญแจใหม่ และบันทึกถาวร</p>
-      <Field label="User ID" value={userId} onChange={(e) => setUserId(e.target.value)} />
-      <Field label="รหัสบัญชีใหม่ (0x…)" value={address} onChange={(e) => setAddress(e.target.value.trim())} className="[&_input]:font-mono" />
-      <Button
-        block
-        variant="danger"
-        loading={busy}
-        disabled={!valid}
-        onClick={async () => {
-          if (!window.confirm("ยืนยันการย้ายกุญแจ? ทำย้อนกลับไม่ได้")) return;
-          setBusy(true);
-          try {
-            await api.rotateKey(userId.trim(), address);
-            toast("ย้ายกุญแจแล้ว", "success");
-            setUserId("");
-            setAddress("");
-          } catch (e) {
-            toast(errorMessage(e), "error");
-          } finally {
-            setBusy(false);
-          }
-        }}
-      >
-        ย้ายกุญแจ
-      </Button>
+    <Card className="space-y-2 text-sm">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="font-semibold text-ink">{item.displayName}</p>
+          <p className="text-xs text-ink-muted">
+            User ID {item.userId} · ขอเมื่อ {new Date(item.createdAt).toLocaleString("th-TH")}
+          </p>
+        </div>
+        <Chip tone={item.status === "APPROVED" ? "success" : "warn"}>{rotationStatusText[item.status]}</Chip>
+      </div>
+      <KeyValue label="กุญแจเดิม">
+        <span className="font-mono">{shortAddress(item.oldAddress)}</span>
+      </KeyValue>
+      <KeyValue label="กุญแจใหม่">
+        <span className="font-mono">{shortAddress(item.newAddress)}</span>
+      </KeyValue>
+      <KeyValue label="อนุมัติแล้ว">{item.approvals.length}/2</KeyValue>
+      {item.approvals.length > 0 && (
+        <ul className="text-xs text-ink-muted">
+          {item.approvals.map((a) => (
+            <li key={a.adminId}>
+              ✓ {a.adminName} · {new Date(a.at).toLocaleString("th-TH")}
+            </li>
+          ))}
+        </ul>
+      )}
+      {item.executeAfter && (
+        <p className="text-xs text-ink-muted">จะเปลี่ยนกุญแจหลัง {new Date(item.executeAfter).toLocaleString("th-TH")} (ผู้ใช้ยกเลิกได้จนถึงเวลานั้น)</p>
+      )}
+      {item.status === "PENDING" && (
+        <>
+          <Field label="เหตุผล (ถ้าไม่อนุมัติ)" value={reason} onChange={(e) => setReason(e.target.value)} />
+          <div className="flex gap-2">
+            <Button className="flex-1" loading={busy} disabled={approvedByMe} onClick={() => void approve()}>
+              {approvedByMe ? "คุณอนุมัติแล้ว" : "อนุมัติ"}
+            </Button>
+            <Button className="flex-1" variant="danger" loading={busy} onClick={() => void reject()}>
+              ไม่อนุมัติ
+            </Button>
+          </div>
+        </>
+      )}
     </Card>
+  );
+}
+
+function KeyRotations() {
+  const me = useMe().data;
+  const [status, setStatus] = useState<KeyRotationStatus>("PENDING");
+  const q = useQuery({ queryKey: qk.keyRotations(status), queryFn: () => api.keyRotations(status) });
+  const queryClient = useQueryClient();
+  return (
+    <section aria-labelledby="key-rotations" className="space-y-3 pt-4">
+      <h2 id="key-rotations" className="text-lg font-semibold text-ink">
+        คำขอเปลี่ยนกุญแจ
+      </h2>
+      <p className="text-sm text-ink-muted">
+        ผู้ใช้ที่ทำเครื่องหายและลืมรหัสกู้คืนขอย้ายบัญชีไปยังกุญแจใหม่บนเครื่องใหม่ ต้องมีผู้ดูแล 2 คนที่ต่างกันอนุมัติ
+        ผู้ขอต้องยืนยันตัวตน (KYC) ผ่านแล้ว ยืนยันตัวตนผู้ขออีกครั้ง (เช่น วิดีโอคอลคู่บัตร) ก่อนอนุมัติ
+        กุญแจจะเปลี่ยนหลังการอนุมัติครั้งที่สอง 24 ชั่วโมง และระหว่างนั้นเจ้าของบัญชียกเลิกได้
+      </p>
+      <Tabs<KeyRotationStatus>
+        value={status}
+        onChange={setStatus}
+        tabs={[
+          { id: "PENDING", label: "รออนุมัติ" },
+          { id: "APPROVED", label: "อนุมัติครบแล้ว" },
+        ]}
+      />
+      {q.isLoading ? (
+        <Loading />
+      ) : q.isError ? (
+        <ErrorState message={errorMessage(q.error)} onRetry={() => void q.refetch()} />
+      ) : !q.data?.length ? (
+        <EmptyState title="ไม่มีคำขอ" icon="🔑" />
+      ) : (
+        q.data.map((item) => (
+          <RotationItem
+            key={item.id}
+            item={item}
+            myId={me?.id}
+            onDone={() => void queryClient.invalidateQueries({ queryKey: ["admin", "key-rotations"] })}
+          />
+        ))
+      )}
+    </section>
   );
 }
 
@@ -136,7 +233,7 @@ export default function Admin() {
             <Review key={item.id} item={item} onDone={() => void queryClient.invalidateQueries({ queryKey: ["admin", "kyc"] })} />
           ))
         )}
-        <RotateKey />
+        <KeyRotations />
       </main>
     </Screen>
   );

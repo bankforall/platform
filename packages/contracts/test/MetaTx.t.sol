@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.37;
 
 import {ERC2771Forwarder} from "@openzeppelin/contracts/metatx/ERC2771Forwarder.sol";
@@ -68,7 +68,8 @@ contract MetaTxTest is BaseTest {
             address(factory),
             abi.encodeCall(CircleFactory.createCircle, (defaultParams(CircleType.Float, 2), 0, att, sig))
         );
-        Circle c = Circle(vm.getRecordedLogs()[0].emitter);
+        // CircleCreated(address indexed circle, ...) is the factory's first log
+        Circle c = Circle(address(uint160(uint256(vm.getRecordedLogs()[0].topics[1]))));
         assertEq(c.host(), host, "host is the signer, not the relayer");
         assertEq(factory.activeCircles(relayer), 0);
 

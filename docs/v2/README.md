@@ -18,6 +18,7 @@
 | [rules-spec.md](./rules-spec.md) | กติกาวงแชร์ (Fix ที่นั่ง ±rate, Float, Discount), การประมูลปิดซอง, การชำระ, การผิดนัด |
 | [architecture.md](./architecture.md) | สถาปัตยกรรมที่สร้างจริง, ลำดับการทำรายการ, worker, ความปลอดภัย, ข้อจำกัด |
 | [deployment.md](./deployment.md) | วิธี deploy ขึ้น production, จัดการกุญแจ, งานประจำ, การกู้คืน, checklist ก่อนเปิดใช้งาน |
+| [security.md](./security.md) | Security model, ผลการตรวจความปลอดภัยก่อนเปิดใช้งาน และความเสี่ยงที่ยอมรับ |
 | [legal-checklist.md](./legal-checklist.md) | คำถามด้านกฎหมายที่ต้องปิดก่อนเปิดใช้งานจริง |
 | [`design/screen-inventory.md`](../../design/screen-inventory.md) | 63 หน้าจอจาก Figma → หน้าจอ v2 (ใช้ / ปรับ / ตัด / เพิ่ม) |
 

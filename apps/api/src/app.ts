@@ -3,9 +3,10 @@ import helmet from "@fastify/helmet";
 import multipart from "@fastify/multipart";
 import rateLimit from "@fastify/rate-limit";
 import Fastify, { type FastifyInstance } from "fastify";
-import { createHash } from "node:crypto";
 import type { Ctx } from "./context.js";
+import { verifiedSubject } from "./auth/session.js";
 import { AppError } from "./errors.js";
+import { PolicyError } from "./signer/policy.js";
 import { adminRoutes } from "./routes/admin.js";
 import { authRoutes } from "./routes/auth.js";
 import { circleRoutes } from "./routes/circles.js";
@@ -31,10 +32,12 @@ export async function buildApp(ctx: Ctx, opts: { logger?: boolean } = {}): Promi
     timeWindow: "1 minute",
     redis: ctx.redis,
     nameSpace: "rl:",
-    // per session when logged in (many Thai mobile users share one carrier-NAT IP), else per IP
-    keyGenerator: (req) => {
-      const session = /(?:^|;\s*)bfa_session=([^;]+)/.exec(req.headers.cookie ?? "")?.[1];
-      return session ? `s:${createHash("sha256").update(session).digest("hex").slice(0, 32)}` : `ip:${req.ip}`;
+    // per user when the session verifies (many Thai mobile users share one carrier-NAT IP), else per IP;
+    // an unverified cookie never gets its own bucket
+    keyGenerator: async (req) => {
+      const token = /(?:^|;\s*)bfa_session=([^;]+)/.exec(req.headers.cookie ?? "")?.[1];
+      const userId = token ? await verifiedSubject(ctx, token) : null;
+      return userId ? `u:${userId}` : `ip:${req.ip}`;
     },
     errorResponseBuilder: () => ({
       statusCode: 429,
@@ -50,6 +53,18 @@ export async function buildApp(ctx: Ctx, opts: { logger?: boolean } = {}): Promi
   });
 
   app.setErrorHandler((err, req, reply) => {
+    if (err instanceof PolicyError) {
+      req.log.warn({ code: err.code }, "signer refused");
+      const message =
+        err.code === "KYC_REQUIRED"
+          ? "ต้องยืนยันตัวตนให้เรียบร้อยก่อน"
+          : err.code === "ROTATION_PENDING"
+            ? "บัญชีกำลังเปลี่ยนกุญแจ กรุณารอให้เสร็จก่อน"
+            : err.code === "CIRCLE_NOT_OPEN"
+              ? "วงนี้ไม่เปิดรับสมาชิกแล้ว"
+              : "ไม่สามารถยืนยันรายการนี้ได้";
+      return reply.status(403).send({ error: { code: err.code, message } });
+    }
     if (err instanceof AppError) {
       return reply.status(err.status).send({ error: { code: err.code, message: err.message } });
     }
@@ -66,7 +81,12 @@ export async function buildApp(ctx: Ctx, opts: { logger?: boolean } = {}): Promi
   });
   app.setNotFoundHandler((_req, reply) => reply.status(404).send({ error: { code: "NOT_FOUND", message: "ไม่พบ" } }));
 
-  app.get("/api/health", async (_req, reply) => {
+  // cached briefly: the endpoint is public and each check touches DB, Redis, RPC and S3
+  let healthCache: { at: number; status: number; body: object } | null = null;
+  app.get("/api/health", { config: { rateLimit: { max: 60, timeWindow: "1 minute" } } }, async (_req, reply) => {
+    if (healthCache && Date.now() - healthCache.at < 5_000) {
+      return reply.status(healthCache.status).send(healthCache.body);
+    }
     const checks = await Promise.allSettled([
       ctx.db.$queryRaw`SELECT 1`,
       ctx.redis.ping(),
@@ -76,12 +96,17 @@ export async function buildApp(ctx: Ctx, opts: { logger?: boolean } = {}): Promi
     const [db, redis, chain, storage] = checks.map((c) => c.status === "fulfilled");
     const ok = db && redis && chain && storage;
     // degraded (still 200): needs an operator but users can keep reading
-    const [heartbeat, gasLow] = await Promise.all([
+    const [heartbeat, gasKeys] = await Promise.all([
       ctx.redis.get("worker:heartbeat").catch(() => null),
-      ctx.redis.get("ops:gas-low").catch(() => null),
+      ctx.redis
+        .mget("ops:gas-low:relayer", "ops:gas-low:keeper", "ops:gas-low:attester")
+        .then((v) => v.filter((x) => x !== null))
+        .catch(() => [] as string[]),
     ]);
     const worker = heartbeat !== null && Date.now() - Number(heartbeat) < 2 * 60_000;
-    return reply.status(ok ? 200 : 503).send({ ok, db, redis, chain, storage, worker, gasLow: gasLow !== null });
+    const body = { ok, db, redis, chain, storage, worker, gasLow: gasKeys.length > 0 };
+    healthCache = { at: Date.now(), status: ok ? 200 : 503, body };
+    return reply.status(ok ? 200 : 503).send(body);
   });
 
   authRoutes(app, ctx);

@@ -51,7 +51,15 @@ function HostPanel({ circle }: TabProps) {
         <Button
           className="flex-1"
           disabled={!full}
-          onClick={() => void run({ title: "เริ่มวง", prepare: () => api.prepareStart(circle.id), successMessage: "เริ่มวงแล้ว งวดที่ 1 เปิดแล้ว" })}
+          onClick={() =>
+            void run({
+              title: "เริ่มวง",
+              prepare: () => api.prepareStart(circle.id),
+              expect: { kind: "start", circle: circle.address },
+              display: { circleName: circle.name },
+              successMessage: "เริ่มวงแล้ว งวดที่ 1 เปิดแล้ว",
+            })
+          }
         >
           เริ่มวง
         </Button>
@@ -60,7 +68,13 @@ function HostPanel({ circle }: TabProps) {
           className="flex-1 text-danger"
           onClick={async () => {
             if (!window.confirm("ยกเลิกวงนี้? ทำย้อนกลับไม่ได้")) return;
-            const r = await run({ title: "ยกเลิกวง", prepare: () => api.prepareCancel(circle.id), successMessage: "ยกเลิกวงแล้ว" });
+            const r = await run({
+              title: "ยกเลิกวง",
+              prepare: () => api.prepareCancel(circle.id),
+              expect: { kind: "cancel", circle: circle.address },
+              display: { circleName: circle.name },
+              successMessage: "ยกเลิกวงแล้ว",
+            });
             if (r?.status === "CONFIRMED") navigate("/circles");
           }}
         >

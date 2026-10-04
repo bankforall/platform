@@ -17,6 +17,8 @@ flowchart LR
     API --> R[(Redis: rate limit, tx locks, lease)]
     API --> S3[(S3 — SeaweedFS: KYC/สลิป เข้ารหัส AES-GCM)]
     API -- "relayer จ่าย gas" --> F["ERC2771Forwarder"]
+    API -- "token, internal" --> SG["signer<br/>(attester key, policy-checked)"]
+    W -- "token, internal" --> SG
     F --> CF["CircleFactory"] & CI["Circle (EIP-1167 clone ต่อวง)"]
     W -- keeper/attester --> CI
     W -- getLogs --> CI
@@ -34,10 +36,10 @@ flowchart LR
 
 | Path | เนื้อหา | Tests |
 | --- | --- | --- |
-| `packages/contracts` | `CircleFactory`, `Circle`, `CircleTypes`, deploy script, ABI export | Foundry 31 ข้อ (รวม replay test vectors, meta-tx, key rotation) |
+| `packages/contracts` | `CircleFactory`, `Circle`, `CircleTypes`, deploy script, ABI export | Foundry 40 ข้อ (รวม replay test vectors, meta-tx, key rotation, regression ของ security review) + Slither 0 findings |
 | `packages/shared` | กติกา (`circle-math`), zod API contract (`api.ts`), EIP-712 types, PromptPay EMVCo, ABIs | vitest 23 ข้อ (PromptPay เทียบกับ `promptpay-qr`) |
-| `apps/api` | Fastify API + worker + Prisma schema/migrations + CLI | unit 6 ข้อ + **E2E 9 ขั้น** กับ Postgres/Redis/S3/anvil จริง |
-| `apps/web` | PWA (React, Vite, Tailwind, TanStack Query, viem) | vitest (wallet crypto, signing, screens) |
+| `apps/api` | Fastify API + worker + signer + Prisma schema/migrations + CLI (image เดียว, 3 บทบาท แต่ละบทบาทได้กุญแจของตัวเองเท่านั้น) | unit 9 ข้อ + **E2E 11 ขั้น** (signer ผ่าน HTTP จริง) กับ Postgres/Redis/S3/anvil จริง |
+| `apps/web` | PWA (React, Vite, Tailwind, TanStack Query, viem) | vitest 63 ข้อ (wallet crypto, ตัวตรวจก่อนลงนาม, screens) |
 | `e2e` | Playwright: ผู้ใช้หลายคนในเบราว์เซอร์จริง | |
 | `deploy` | `docker-compose.prod.yml`, `Caddyfile`, `.env.production.example`, `backup.sh` | smoke test ทั้ง stack แบบ production แล้ว |
 | `docker-compose.dev.yml`, `scripts/dev-deploy.sh` | สภาพแวดล้อมพัฒนา | |
@@ -87,6 +89,8 @@ API ของ contract อ่านได้จาก `packages/shared/src/abi.t
 7. **push** — ส่ง notification ไป LINE
 
 ## 6. ความปลอดภัย
+
+ดูรายละเอียดและผลการตรวจความปลอดภัยใน [security.md](./security.md)
 
 | ด้าน | มาตรการ |
 | --- | --- |
