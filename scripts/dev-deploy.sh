@@ -26,6 +26,8 @@ SESSION_SECRET=dev-session-secret-change-me-0123456789abcdef
 APP_ENCRYPTION_KEY=$(node -e "console.log(require('crypto').randomBytes(32).toString('base64'))")
 HMAC_KEY=dev-hmac-key-change-me-0123456789abcdef0123
 DEV_LOGIN=true
+# admin passkey 2FA is enforced in production only; WEBAUTHN_RP_ID/ORIGIN default to PUBLIC_URL here
+ADMIN_PASSKEY_REQUIRED=false
 SMS_PROVIDER=console
 S3_ENDPOINT=http://127.0.0.1:59000
 S3_BUCKET=bankforall

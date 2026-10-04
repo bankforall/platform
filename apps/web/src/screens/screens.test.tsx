@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen, fireEvent } from "@testing-library/react";
+import { act, render, screen, fireEvent, within } from "@testing-library/react";
 import { verifyMessage } from "viem";
 import { MemoryRouter } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -16,6 +16,36 @@ import { ToastProvider } from "@/components/overlay";
 import { IntentProvider } from "@/hooks/useIntent";
 import { clearDevice, localAddress, newPrivateKey, pendingBackup, storeLocalKey } from "@/wallet/device";
 import App from "@/App";
+
+// WebAuthn needs a real authenticator: the browser ceremonies are mocked, the API calls around them are not
+const webauthn = vi.hoisted(() => ({
+  startRegistration: vi.fn(async () => ({ id: "cred-new", rawId: "cred-new", type: "public-key", response: {} })),
+  startAuthentication: vi.fn(async () => ({ id: "cred-1", rawId: "cred-1", type: "public-key", response: {} })),
+}));
+vi.mock("@simplewebauthn/browser", () => ({
+  browserSupportsWebAuthn: () => true,
+  startRegistration: webauthn.startRegistration,
+  startAuthentication: webauthn.startAuthentication,
+}));
+
+const securityView = (over: Record<string, unknown> = {}) => ({
+  required: true,
+  passkeys: [{ id: "pk1", name: "มือถือ", createdAt: new Date().toISOString(), lastUsedAt: null }],
+  stepUpExpiresAt: null,
+  enrolment: "step-up",
+  ...over,
+});
+const apiError = (status: number, code: string, message: string) =>
+  Promise.resolve(new Response(JSON.stringify({ error: { code, message } }), { status }));
+const kycItem = () => ({
+  id: "k1",
+  userId: "u9",
+  displayName: "ใหม่",
+  fullName: "นาย ใหม่ ทดสอบ",
+  nationalIdLast4: "1234",
+  status: "PENDING",
+  createdAt: new Date().toISOString(),
+});
 
 const now = Math.floor(Date.now() / 1000);
 let ME: `0x${string}`;
@@ -201,6 +231,7 @@ function routes(url: string, init?: RequestInit): Promise<Response> {
     return json({ payload: "00020101021229370016A000000677010111011300668123456785802TH530376463045D82", amount: "100000", recipientName: "สมหญิง", promptPayMasked: "081-xxx-5678" });
   if (path.startsWith("/admin/kyc")) return json([]);
   if (path.startsWith("/admin/key-rotations")) return json([]);
+  if (path === "/admin/security") return json(securityView());
   return Promise.resolve(new Response(JSON.stringify({ error: { code: "NOT_FOUND", message: "ไม่พบ" } }), { status: 404 }));
 }
 
@@ -228,6 +259,8 @@ describe("screens render with contract-valid data", () => {
     recipientIsMe = false;
     tweakCircle = () => {};
     extraRoutes = () => null;
+    webauthn.startRegistration.mockClear();
+    webauthn.startAuthentication.mockClear();
     vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => routes(url, init)));
     vi.spyOn(console, "error").mockImplementation((...args) => errors.push(["error", ...args]));
     vi.spyOn(console, "warn").mockImplementation((...args) => errors.push(["warn", ...args]));
@@ -533,6 +566,94 @@ describe("screens render with contract-valid data", () => {
     expect(await screen.findByText("ลืมรหัส")).toBeInTheDocument();
     expect(screen.getByText("1/2")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "คุณอนุมัติแล้ว" })).toBeDisabled();
+  });
+
+  it("admin without a passkey enrols one first (ความปลอดภัยผู้ดูแล)", async () => {
+    let enrolled = false;
+    const bodies: Record<string, unknown> = {};
+    extraRoutes = (path, init) => {
+      if (path === "/admin/security")
+        return json(
+          enrolled
+            ? securityView({ stepUpExpiresAt: new Date(Date.now() + 900_000).toISOString(), enrolment: "open" })
+            : securityView({ passkeys: [], enrolment: "open" }),
+        );
+      if (path === "/admin/kyc" && !enrolled)
+        return apiError(403, "ADMIN_PASSKEY_REQUIRED", "ต้องลงทะเบียนพาสคีย์ผู้ดูแลก่อนใช้งานเมนูผู้ดูแล (ความปลอดภัยผู้ดูแล)");
+      if (path === "/admin/passkeys/register/options") return json({ challenge: "c1", rp: { name: "Bank For All" } });
+      if (path === "/admin/passkeys/register/verify") {
+        bodies.verify = JSON.parse(init?.body as string);
+        enrolled = true;
+        return json(securityView({ enrolment: "open" }));
+      }
+      return null;
+    };
+    renderAt("/admin");
+    expect(await screen.findByText(/ยังไม่มีพาสคีย์ — ต้องลงทะเบียนก่อน/)).toBeInTheDocument();
+    expect(await screen.findByText(/ต้องลงทะเบียนพาสคีย์ผู้ดูแลก่อนใช้งาน/)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("ชื่ออุปกรณ์สำหรับพาสคีย์ใหม่"), { target: { value: "ไอโฟน" } });
+    fireEvent.click(screen.getByRole("button", { name: "เพิ่มพาสคีย์" }));
+    expect(await screen.findByText("เพิ่มพาสคีย์แล้ว")).toBeInTheDocument();
+    expect(webauthn.startRegistration).toHaveBeenCalledWith({ optionsJSON: { challenge: "c1", rp: { name: "Bank For All" } } });
+    expect(bodies.verify).toMatchObject({ name: "ไอโฟน", response: { id: "cred-new" } });
+    expect(await screen.findByText(/ทำรายการได้ถึง/)).toBeInTheDocument();
+  });
+
+  it("asks for the passkey when an admin action needs a step-up, then retries", async () => {
+    let steppedUp = false;
+    let decisions = 0;
+    extraRoutes = (path) => {
+      if (path === "/admin/kyc") return json([kycItem()]);
+      if (path === "/admin/kyc/k1/decision") {
+        decisions++;
+        return steppedUp ? json({ ok: true }) : apiError(403, "ADMIN_STEP_UP_REQUIRED", "กรุณายืนยันตัวตนด้วยพาสคีย์ก่อนทำรายการนี้");
+      }
+      if (path === "/admin/step-up/options") return json({ challenge: "c2", allowCredentials: [{ id: "cred-1", type: "public-key" }] });
+      if (path === "/admin/step-up/verify") {
+        steppedUp = true;
+        return json({ expiresAt: new Date(Date.now() + 900_000).toISOString() });
+      }
+      return null;
+    };
+    renderAt("/admin");
+    fireEvent.click(await screen.findByRole("button", { name: "อนุมัติ" }));
+    const sheet = await screen.findByRole("dialog", { name: "ยืนยันตัวตนผู้ดูแล" });
+    expect(webauthn.startAuthentication).not.toHaveBeenCalled(); // waits for the admin's tap
+    fireEvent.click(within(sheet).getByRole("button", { name: "ยืนยันด้วยพาสคีย์" }));
+    expect(await screen.findByText("อนุมัติแล้ว")).toBeInTheDocument();
+    expect(webauthn.startAuthentication).toHaveBeenCalledWith({
+      optionsJSON: { challenge: "c2", allowCredentials: [{ id: "cred-1", type: "public-key" }] },
+    });
+    expect(decisions).toBe(2);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("cancelling the step-up leaves the action undone", async () => {
+    let decisions = 0;
+    extraRoutes = (path) => {
+      if (path === "/admin/kyc") return json([kycItem()]);
+      if (path === "/admin/kyc/k1/decision") {
+        decisions++;
+        return apiError(403, "ADMIN_STEP_UP_REQUIRED", "กรุณายืนยันตัวตนด้วยพาสคีย์ก่อนทำรายการนี้");
+      }
+      return null;
+    };
+    renderAt("/admin");
+    fireEvent.click(await screen.findByRole("button", { name: "อนุมัติ" }));
+    const sheet = await screen.findByRole("dialog", { name: "ยืนยันตัวตนผู้ดูแล" });
+    fireEvent.click(within(sheet).getByRole("button", { name: "ปิด" }));
+    expect(await screen.findByText(/ต้องยืนยันด้วยพาสคีย์ก่อนทำรายการนี้/)).toBeInTheDocument();
+    expect(decisions).toBe(1);
+  });
+
+  it("shows a cancelled passkey prompt in Thai and keeps the last passkey", async () => {
+    webauthn.startAuthentication.mockRejectedValueOnce(Object.assign(new Error("denied"), { name: "NotAllowedError" }));
+    extraRoutes = (path) => (path === "/admin/step-up/options" ? json({ challenge: "c3" }) : null);
+    renderAt("/admin");
+    expect(await screen.findByRole("heading", { name: "ความปลอดภัยผู้ดูแล" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "ลบพาสคีย์ มือถือ" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "ยืนยันตอนนี้" }));
+    expect(await screen.findByText("ยกเลิกการใช้พาสคีย์ หรือหมดเวลา กรุณาลองใหม่")).toBeInTheDocument();
   });
 
   afterEach(() => {

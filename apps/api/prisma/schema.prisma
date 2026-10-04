@@ -102,6 +102,26 @@ model User {
   slips          Slip[]
   disputes       Dispute[]
   keyRotations   KeyRotationRequest[]
+  adminPasskeys  AdminPasskey[]
+}
+
+/// WebAuthn passkeys of an admin: second factor on top of LINE login for admin powers.
+model AdminPasskey {
+  id           String    @id @default(cuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// base64url credential ID from the authenticator.
+  credentialId String    @unique
+  /// COSE public key.
+  publicKey    Bytes
+  /// Signature counter (detects cloned authenticators; 0 for most synced passkeys).
+  counter      BigInt    @default(0)
+  transports   String[]
+  name         String
+  createdAt    DateTime  @default(now())
+  lastUsedAt   DateTime?
+
+  @@index([userId])
 }
 
 model KycSubmission {

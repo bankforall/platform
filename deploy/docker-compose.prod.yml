@@ -110,6 +110,11 @@ services:
       THAIBULKSMS_API_SECRET: ${THAIBULKSMS_API_SECRET:-}
       THAIBULKSMS_SENDER: ${THAIBULKSMS_SENDER:-}
       THAIBULKSMS_FORCE: ${THAIBULKSMS_FORCE:-}
+      # admin passkeys (WebAuthn 2FA) — always enforced in production
+      WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID}
+      WEBAUTHN_ORIGIN: ${WEBAUTHN_ORIGIN}
+      ADMIN_PASSKEY_REQUIRED: "true"
+      ADMIN_STEPUP_TTL: ${ADMIN_STEPUP_TTL:-900}
     expose: ["4000"]
     depends_on:
       <<: *depends

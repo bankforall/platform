@@ -263,6 +263,8 @@ describe("ops config", () => {
   const prod = {
     NODE_ENV: "production",
     PUBLIC_URL: "https://app.example.com",
+    WEBAUTHN_RP_ID: "app.example.com",
+    WEBAUTHN_ORIGIN: "https://app.example.com",
     DATABASE_URL: "postgresql://x",
     REDIS_URL: "redis://x",
     SESSION_SECRET: "s".repeat(32),
