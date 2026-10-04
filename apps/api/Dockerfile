@@ -2,7 +2,7 @@
 # Build from the repo root:
 #   docker build -f apps/api/Dockerfile --target runtime -t bankforall-api .
 #   docker build -f apps/api/Dockerfile --target migrate -t bankforall-migrate .
-FROM node:24-trixie-slim AS base
+FROM node:26-trixie-slim AS base
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
 RUN corepack enable
 WORKDIR /repo
