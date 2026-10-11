@@ -13,6 +13,6 @@
     "test:contracts": "cd packages/contracts && forge test"
   },
   "devDependencies": {
-    "turbo": "^2.11.6"
+    "turbo": "^2.11.7"
   }
 }
